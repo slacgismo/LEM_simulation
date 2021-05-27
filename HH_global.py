@@ -26,7 +26,7 @@ assert PV_share >= Batt_share, 'More batteries than PV'
 #Market parameters
 C = 100000.0
 market_data = 'Ercot_LZ_South.csv'
-RR_loss = 0.0018787228725150734
+RR_loss = 0.0
 p_min = 0.0
 p_max = 10000.0
 load_forecast = 'myopic'

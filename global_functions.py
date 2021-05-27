@@ -100,7 +100,10 @@ def write_global(series_settings,ind,ip_address):
     glm.write('#Market parameters\n')
     glm.write('C = '+str(float(series_settings['line_capacity']))+'\n')
     glm.write('market_data = \''+series_settings['market_data']+'\'\n')
-    RR_loss = get_RRloss(series_settings['run'],series_settings['settings_file'],series_settings['city'],series_settings['market_data'])
+    try:
+        RR_loss = get_RRloss(series_settings['run'],series_settings['settings_file'],series_settings['city'],series_settings['market_data'])
+    except:
+        RR_loss = 0.0
     glm.write('RR_loss = '+str(RR_loss)+'\n')
     glm.write('p_min = '+str(float(series_settings['p_min']))+'\n')
     glm.write('p_max = '+str(float(series_settings['p_max']))+'\n')
