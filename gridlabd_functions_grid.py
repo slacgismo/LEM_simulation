@@ -5,6 +5,7 @@ import time
 import gldimport
 
 interval = 60
+retail_rate = 30. # sample fixed retail rate
 
 def on_init(t):
 	global t0;
@@ -29,14 +30,40 @@ def on_precommit(t):
 	else: 
 		print(dt_sim_time)
 
+		#########################
+		# Code insights
+		#########################
+
 		# Gets all objects active in the simulation and accessible through python
 		objects = gridlabd.get("objects") # this is a list
 		print('All objects in this model')
 		print(objects)
 		print()
 
-		# Get house characteristics for each house object
+		# Get all ouse objects
 		houses = gldimport.find_objects('class=house') # function based on gridlabd.get("objects")
+
+		# For last house (as an exmaple)
+		house = houses[0]
+		print('Properties of '+house)
+		house_obj = gridlabd.get_object(house)
+		print(house_obj)
+		print()
+
+		# Get characteristics of a node
+		node = gridlabd.get_object(house_obj['parent'])['parent']
+		node_obj = gridlabd.get_object(node)
+		print('Properties of '+node)
+		print(node_obj)
+		print()
+
+		#########################
+		# Market : initialize, bid, clear, dispatch
+		#########################
+
+		# TODO : initialize market
+
+		# Get house characteristics for each house object
 		for house in houses:
 			house_obj = gridlabd.get_object(house) # this is a dictionary which includes all readable properties of this house object
 			node = gridlabd.get_object(house_obj['parent'])['parent']
@@ -48,16 +75,16 @@ def on_precommit(t):
 			heating_setpoint = float(house_obj['heating_setpoint'])
 			cooling_setpoint = float(house_obj['cooling_setpoint'])
 			T_air = float(house_obj['air_temperature'])
+			if T_air <= (heating_setpoint + cooling_setpoint)/2: # heating
+				bid = (heat_q,retail_rate*(1+k*(heating_setpoint - T_air)/heating_setpoint),node) # very simple bidding fct
+			else:
+				bid = (heat_q,retail_rate*(1+k*(T_air - cooling_setpoint)/cooling_setpoint),node) # very simple bidding fct
 		
-		# For last house (as an exmaple)
-		print('Properties of '+house)
-		print(house_obj)
-		print('The house is connected to '+node+'\n')
+			# TODO : submit bid
 
-		# Get characteristics of a node
-		node_obj = gridlabd.get_object(node)
-		print('Properties of '+node)
-		print(node_obj)
+		# TODO : clear market
+
+		# TODO : re-distribute price(s) to devices
 
 		import pdb; pdb.set_trace()
 		return t
