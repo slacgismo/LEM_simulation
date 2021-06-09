@@ -59,29 +59,29 @@ object triplex_meter:..${COUNT} {
 			//base_power player_1.value;
 		};
 	}; 
-	object inverter {
-		name `PV_inverter_{SEQ_CUSTID}`;
-		phases BS;
-		generator_status ONLINE;
-		inverter_type FOUR_QUADRANT;
-		four_quadrant_control_mode CONSTANT_PF;
-		generator_mode SUPPLY_DRIVEN;
-		rated_power 0;
-		inverter_efficiency 0.95;
-		object solar {
-			name `PV_{SEQ_CUSTID}`;
-			phases BS;
-			generator_status ONLINE;
-			generator_mode SUPPLY_DRIVEN;
-			panel_type SINGLE_CRYSTAL_SILICON;
-			area random.uniform(150,250) ft^2;
-			tilt_angle 45.0;
-			efficiency 0.135;
-			orientation_azimuth 0;
-			orientation FIXED_AXIS;
-			SOLAR_TILT_MODEL SOLPOS;
-			SOLAR_POWER_MODEL FLATPLATE;
-		};
-	};
+	//object inverter {
+	//	name `PV_inverter_{SEQ_CUSTID}`;
+	//	phases BS;
+	//	generator_status ONLINE;
+	//	inverter_type FOUR_QUADRANT;
+	//	four_quadrant_control_mode CONSTANT_PF;
+	//	generator_mode SUPPLY_DRIVEN;
+	//	rated_power 0;
+	//	inverter_efficiency 0.95;
+	//	object solar {
+	//		name `PV_{SEQ_CUSTID}`;
+	//		phases BS;
+	//		generator_status ONLINE;
+	//		generator_mode SUPPLY_DRIVEN;
+	//		panel_type SINGLE_CRYSTAL_SILICON;
+	//		area random.uniform(150,250) ft^2;
+	//		tilt_angle 45.0;
+	//		efficiency 0.135;
+	//		orientation_azimuth 0;
+	//		orientation FIXED_AXIS;
+	//		SOLAR_TILT_MODEL SOLPOS;
+	//		SOLAR_POWER_MODEL FLATPLATE;
+	//	};
+	// };
 }
 
