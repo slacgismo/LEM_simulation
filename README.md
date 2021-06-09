@@ -14,6 +14,13 @@ Access the docker container:
 docker run -it -v ~/path_to_repo/LEM_simulation:/docker_powernet gridlabd/slac-master:latest
 ```
 
+Navigate to the main path:
+
+```
+cd ..
+cd docker_powernet
+```
+
 Start the simulation:
 
 ```
