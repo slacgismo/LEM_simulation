@@ -195,12 +195,12 @@ def on_precommit(t):
 					retail.sell(PV_forecast,0.0,gen_name='PV')
 					df_supply_bids = df_supply_bids.append(pandas.DataFrame(columns=df_supply_bids.columns,data=[[dt_sim_time,'PV',0.0,PV_forecast]]),ignore_index=True)
 
-		#Include unresponsive load
+		# Include unresponsive load
 		retail, load_SLACK, unresp_load, df_buy_bids = Mfct.include_unresp_load(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids)
-		#Claudio's control
-		#retail, load_SLACK, unresp_load, df_buy_bids = Mfct.include_unresp_load_control(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids)
-		#print('This fct is for control only')
-		#df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,'unresp_load',float(p_max),unresp_load,'S']]),ignore_index=True)
+		# Claudio's control
+		# retail, load_SLACK, unresp_load, df_buy_bids = Mfct.include_unresp_load_control(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids)
+		# print('This fct is for control only')
+		# df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,'unresp_load',float(p_max),unresp_load,'S']]),ignore_index=True)
 
 		#Include supply
 		try:
