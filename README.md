@@ -4,7 +4,13 @@ This code integrates Python-based market code with a GridLAB-D simulation model 
 
 ## System requirements
 
-We use the docker container gridlabd/slac-master:latest, provided by SLAC. The docker container provides the right GridlabD and python versions.
+We use the docker container gridlabd/slac-master:latest, provided by SLAC on https://hub.docker.com/r/slacgismo/gridlabd . After you have installed docker, type the following line on your terminal:
+
+```
+docker pull gridlabd/slac-master:latest
+```
+
+The docker container provides the right GridlabD and python versions.
 
 ## Getting started
 
