@@ -86,7 +86,8 @@ module residential{
 	implicit_enduse_source EIA2015;
 }
 
-//module gridlabd_functions_grid;
+// This is where you import the python interaction / market
+module gridlabd_functions_grid;
 
 class player {
 	double value;
