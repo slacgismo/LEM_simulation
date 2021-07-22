@@ -4,4 +4,7 @@ Test/Test_0000/**
 Test/.DS_Store
 .idea/
 .ipynb_checkpoints/
-
+__pycache__/
+__pycache__/**
+__pycache__
+.DS_Store

@@ -12,7 +12,7 @@ df_settings = pandas.read_csv('settings.csv',index_col=[0]) #,parse_dates=['star
 ##################
 #Assemble correct glm files
 #################
-if True:
+if False:
 	#write global file with settings from csv file: HH_global.py
 	import global_functions
 	global_functions.write_global(df_settings.loc[ind],ind,'none')

@@ -1,8 +1,12 @@
-import sys
+import os, sys
 assert(sys.version_info.major>2)
 import gridlabd
 import time
 import pandas
+
+# Create result file
+if not os.path.isdir('Test/Test_DLMP'):
+	os.makedirs('Test/Test_DLMP')
 
 ##################
 #Run GridlabD

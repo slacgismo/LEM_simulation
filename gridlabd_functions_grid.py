@@ -86,5 +86,5 @@ def on_precommit(t):
 
 		# TODO : re-distribute price(s) to devices
 
-		import pdb; pdb.set_trace()
+		# import pdb; pdb.set_trace()
 		return t
