@@ -1,5 +1,9 @@
 class house {
-	double k;
+	double alpha;
+	double beta;
+	double gamma_cool;
+	double gamma_heat;
+	double comf_temperature;
 	double T_max;
 	double T_min;
 }
@@ -27,7 +31,6 @@ object triplex_node {
 
 object triplex_meter:..${COUNT} { 
 	name `meter_{SEQ_CUSTID:INC}`;
-	//price 0.2;
 	parent node_${LOADID}${PHASE};
 	phases ${PHASE}S;
 	nominal_voltage 120;
@@ -35,16 +38,7 @@ object triplex_meter:..${COUNT} {
 		name `house_{SEQ_CUSTID}`;
 		groupid group_houses;
 		floor_area random.triangle(1000,1500);
-		//thermostat_control NONE;
-		cooling_setpoint 76 degF;
-		heating_setpoint 65 degF;
-		T_min 60 degF;
-		T_max 72 degF;
-		k random.uniform(0.,2.);
-		hvac_power_factor 0.75;
-		cooling_system_type HEAT_PUMP;	
-		gas_enduses "WATERHEATER|RANGE|DRYER";
-		thermal_integrity_level GOOD;
+		// Base load //
 		object ZIPload {
 			name `zip_GLD_{SEQ_CUSTID}`;
 			power_fraction 0.5;
@@ -55,33 +49,75 @@ object triplex_meter:..${COUNT} {
 			impedance_pf 0.9;
 			heat_fraction 0.0;
 			base_power player_${SEQ_CUSTID}.value;
-			//base_power `player_{SEQ_CUSTID}`.value;
-			//base_power player_1.value;
 		};
+		// HVAC system
+		// Conventional HVAC control
+		cooling_setpoint 76 degF;
+		heating_setpoint 65 degF;
+		hvac_power_factor 0.75;
+		cooling_system_type HEAT_PUMP;	
+		gas_enduses "WATERHEATER|RANGE|DRYER";
+		thermal_integrity_level GOOD;
+		// LEM-based HVAC_control (not used if grilabd_functions module is not imported)
+		// thermostat_control NONE;
+		T_min 60 degF;
+		T_max 72 degF;
+		alpha random.uniform(0.0001,0.001); // preference parameter
+		beta random.uniform(0.89,0.95); // thermal characteristics
+		gamma_cool random.uniform(3.95,8.49); // cooling efficiency parameter
+		gamma_heat random.uniform(1.80,8.60); // heating efficiency parameter
+		comf_temperature random.uniform(62.1,79.1); // comfort temperature
 	}; 
-	//object inverter {
-	//	name `PV_inverter_{SEQ_CUSTID}`;
-	//	phases BS;
-	//	generator_status ONLINE;
-	//	inverter_type FOUR_QUADRANT;
-	//	four_quadrant_control_mode CONSTANT_PF;
-	//	generator_mode SUPPLY_DRIVEN;
-	//	rated_power 0;
-	//	inverter_efficiency 0.95;
-	//	object solar {
-	//		name `PV_{SEQ_CUSTID}`;
-	//		phases BS;
-	//		generator_status ONLINE;
-	//		generator_mode SUPPLY_DRIVEN;
-	//		panel_type SINGLE_CRYSTAL_SILICON;
-	//		area random.uniform(150,250) ft^2;
-	//		tilt_angle 45.0;
-	//		efficiency 0.135;
-	//		orientation_azimuth 0;
-	//		orientation FIXED_AXIS;
-	//		SOLAR_TILT_MODEL SOLPOS;
-	//		SOLAR_POWER_MODEL FLATPLATE;
-	//	};
-	// };
+	// PV system
+	object inverter {
+		name `PV_inverter_{SEQ_CUSTID}`;
+		phases BS;
+		generator_status ONLINE;
+		inverter_type FOUR_QUADRANT;
+		four_quadrant_control_mode CONSTANT_PF;
+		generator_mode SUPPLY_DRIVEN;
+		rated_power 30000.0; // in W
+		inverter_efficiency 0.95;
+		object solar {
+			name `PV_{SEQ_CUSTID}`;
+			phases BS;
+			generator_status ONLINE;
+			generator_mode SUPPLY_DRIVEN;
+			panel_type SINGLE_CRYSTAL_SILICON;
+			area random.uniform(150,250) ft^2;
+			tilt_angle 45.0;
+			efficiency 0.135;
+			orientation_azimuth 0;
+			orientation FIXED_AXIS;
+			SOLAR_TILT_MODEL SOLPOS;
+			SOLAR_POWER_MODEL FLATPLATE;
+		};
+	};
+	// Battery
+	object inverter {
+		name `Bat_inverter_{SEQ_CUSTID}`;
+		generator_status ONLINE;
+		inverter_type FOUR_QUADRANT;
+		four_quadrant_control_mode CONSTANT_PQ;
+		rated_power 8000.0; // in W
+		inverter_efficiency 0.95;
+		//Q_Out 0;
+		object battery {
+			name `Battery_{SEQ_CUSTID}`;
+			use_internal_battery_model TRUE;
+			battery_type LI_ION;
+			power_factor 1.0;
+			V_Max 260;
+			I_Max 15;
+			E_Max 50000;
+			power_type DC;
+			battery_capacity 50000;
+			base_efficiency 0.95;
+			//state_of_charge 0.2;
+			generator_mode CONSTANT_PQ; //SUPPLY_DRIVEN;
+			// LEM-based battery control
+			k 0.2;
+		};
+	};
 }
 

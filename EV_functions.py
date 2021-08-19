@@ -4,7 +4,7 @@ Defines functions for the HH
 Uses direct setting of system mode
 """
 import gridlabd
-import gridlabd_functions
+#import gridlabd_functions
 #from gridlabd_functions import p_max # ???????????????
 #import mysql_functions
 #from HH_global import *
@@ -19,14 +19,21 @@ from datetime import timedelta
 """NEW FUNCTIONS / MYSQL DATABASE AVAILABLE"""
 
 #HVAC
-from HH_global import flexible_houses, C, p_max, interval, prec, start_time_str, end_time_str, EV_data, EV_speed
+from HH_global import interval, prec, start_time_str, end_time_str, EV_data
 
 dep_hours = [6,7,8,9]
 arr_hours = [16,17,18,19,20]
 list_SOC = [30.,40.,50.,60.]
 list_u = [7.,10.,14.,20.]
 
-def get_settings_EVs(EVlist,interval,mysql=False):
+def get_settings_EVs(EVlist,interval):
+      if EV_data == 'None':
+            df_EV_state = get_settings_EVs_rnd(EVlist,interval)
+      else:
+            df_EV_state = get_settings_EVs_data(EVlist,interval)
+      return df_EV_state
+
+def get_settings_EVs_data(EVlist,interval,mysql=False):
       cols_EV = ['EV_name','house_name','SOC_max','i_max','v_max','u_max','efficiency','charging_type','k','soc_t','SOC_t','connected','next_event','active_t-1','active_t']
       df_EV = pandas.DataFrame(columns=cols_EV)   
       #Read in charging events
@@ -155,7 +162,14 @@ def get_settings_EVs_rnd(EVlist,interval,mysql=False):
       #import pdb; pdb.set_trace()
       return df_EV
 
-def update_EV(dt_sim_time,df_EV_state):
+def update_EV():
+      if EV_data == 'None':
+            df_EV_state = update_EV_rnd(dt_sim_time,df_EV_state)
+      else:
+            df_EV_state = update_EV_data(dt_sim_time,df_EV_state)
+      return df_EV_state
+
+def update_EV_data(dt_sim_time,df_EV_state):
       print('Update EV')
       df_EV_state['active_t-1'] = df_EV_state['active_t']
       df_EV_state['active_t'] = 0

@@ -1,45 +1,36 @@
 """
-Defines functions for the HH
-
-Uses direct setting of system mode
+Defines relevant functions for the HVAC system
 """
-print('Import HH fcts')
 import gridlabd
-# import gridlabd_functions
-# #from gridlabd_functions import p_max # ???????????????
-#import mysql_functions
-#from HH_global import *
-#import scipy
-
-import datetime
-import numpy as np
 import pandas
 from dateutil import parser
 from datetime import timedelta
-from HH_global import delta
+import scipy.stats
 
-share_t = 1/12. # 5 min / 1 hour
+from HH_global import interval, HVAC_bid_rule, allocation_rule
 
-"""NEW FUNCTIONS / MYSQL DATABASE AVAILABLE"""
+##############################
+# Read in physical HVAC parameters
+##############################
 
-#HVAC
-from HH_global import flexible_houses, C,p_max, interval, prec, results_folder, settings_file
-from HH_global import p_min
-
+# Collect characteristics relevant for bidding
 def get_settings_houses(houselist,interval,mysql=False):
 	dt = parser.parse(gridlabd.get_global('clock')) #Better: getstart time!
 	prev_timedate = dt - timedelta(minutes=interval/60)
-	#Prepare dataframe to save settings and current state
-	#cols_market_hvac = ['house_name','appliance_name','k','T_min','T_max','P_heat','P_cool','heating_setpoint','cooling_setpoint','air_temperature_measured','air_temperature','system_mode','active']
-	cols_market_hvac = ['house_name','appliance_name','P_heat','P_cool','heating_setpoint','cooling_setpoint','air_temperature','system_mode','active']
+	cols_market_hvac = ['house_name','heating_system','P_heat','gamma_heat','heating_setpoint','T_min']
+	cols_market_hvac += ['cooling_system','P_cool','gamma_cool','cooling_setpoint','T_max','alpha','comf_temperature','beta','air_temperature','system_mode','active']
 	df_market_hvac = pandas.DataFrame(columns=cols_market_hvac)
-	#cols_market_hvac_meter = ['system_mode','av_power','active','timedate','appliance_id']
-	#df_market_hvac_meter = pandas.DataFrame(columns=cols_market_hvac_meter)
-	#Iterate through all houses and collect characteristics relevant for bidding
+
+	# read out GLD model characteristics
 	for house in houselist:            
-		#Table with all relevant settings
 		house_obj = gridlabd.get_object(house)
-		k = float(house_obj['k'])
+		alpha = float(house_obj['alpha'])
+		beta = float(house_obj['beta'])
+		gamma_cool = float(house_obj['gamma_cool'])
+		gamma_heat = float(house_obj['gamma_heat'])
+		heating_system = house_obj['heating_system_type']
+		cooling_system = house_obj['cooling_system_type']
+		comf_temperature = float(house_obj['comf_temperature'])
 		T_min = float(house_obj['T_min'])
 		T_max = float(house_obj['T_max'])
 		heat_q = float(house_obj['heating_demand']) #heating_demand is in kW - gets overwritten by HVAC_settings
@@ -47,292 +38,214 @@ def get_settings_houses(houselist,interval,mysql=False):
 		heating_setpoint = float(house_obj['heating_setpoint'])
 		cooling_setpoint = float(house_obj['cooling_setpoint'])
 		T_air = float(house_obj['air_temperature'])
-		#df_market_hvac = df_market_hvac.append(pandas.Series([house,'HVAC_'+house[4:],k,T_min,T_max,heat_q,hvac_q,heating_setpoint,cooling_setpoint,T_air,T_air,'OFF',0],index=cols_market_hvac),ignore_index=True)          
-		df_market_hvac = df_market_hvac.append(pandas.Series([house,'HVAC_'+house[4:],heat_q,hvac_q,heating_setpoint,cooling_setpoint,T_air,'OFF',0],index=cols_market_hvac),ignore_index=True)          
-		#DB structure according to AWS structure
-		
-		#if mysql:
-		#	mysql_functions.set_values('market_houses', '(house_name)',(house,))
-		#	mysql_functions.set_values('market_HVAC', '(house_name,appliance_name,k,T_min,T_max,P_heat,P_cool)',(house,'HVAC_'+house[4:],k,T_min,T_max,heat_q,hvac_q,))
-		#	mysql_functions.set_values('market_HVAC_meter', '(system_mode,av_power,heating_setpoint,cooling_setpoint,active,timedate,appliance_id)',('OFF',0.0,heating_setpoint,cooling_setpoint,0,prev_timedate,int(house.split('_')[-1]),))           
-	
-	#Import HVAC characteristics
-	df_HVAC = pandas.read_csv(results_folder.split('/')[0] + '/HVAC_settings/' + settings_file,index_col=[0])
-	
-	df_market_hvac.set_index('house_name',inplace=True)
-	df_market_hvac['heating_system'] = df_HVAC['heating_system']
-	df_market_hvac['cooling_system'] = df_HVAC['cooling_system']
-	df_market_hvac['alpha'] = df_HVAC['alpha']
-	df_market_hvac['beta'] = df_HVAC['beta']
-	df_market_hvac['gamma_cool'] = df_HVAC['gamma_cool']
-	df_market_hvac['gamma_heat'] = df_HVAC['gamma_heat']
-	df_market_hvac['P_heat'] = df_HVAC['P_heat']
-	df_market_hvac['comf_temperature'] = df_HVAC['comf_temperature']
-	df_market_hvac['house_name'] = df_market_hvac.index
-	df_market_hvac.index = range(len(df_market_hvac))
+		# Save
+		data_house = [house,heating_system,heat_q,gamma_heat,heating_setpoint,T_min]
+		data_house += [cooling_system,hvac_q,gamma_cool,cooling_setpoint,T_max,alpha,comf_temperature,beta,T_air,'OFF',0]
+		df_market_hvac = df_market_hvac.append(pandas.Series(data_house,index=cols_market_hvac),ignore_index=True) 
+	df_market_hvac.index = range(1,len(df_market_hvac)+1)
 
-	#df_market_hvac.to_sql('market_HVAC',mycursor,if_exists='append') #, flavor='mysql')
-	#Index = house_number
-	df_market_hvac.index = df_market_hvac.index + 1
 	return df_market_hvac
 
 #Read previous temperature of each house and forecast current temperature (not synchronized yet!!)
 def update_house(dt_sim_time,df_market_hvac):
-	#rec_obj = gridlabd.get_object('rec_T')
-	for i in df_market_hvac.index: #directly from mysql
-		#house_obj = gridlabd.get_object(df_market_hvac['house_name'].loc[i])
-		#df_market_hvac.at[i,'air_temperature'] = float(house_obj['air_temperature'])
-
-		# This measures the temperature - but it's actually the temperature from -5min bec it's not synchronized yet !!!
-		#df_market_hvac.at[i,'air_temperature_measured'] = float(gridlabd.get_value(df_market_hvac['house_name'].loc[i],'air_temperature')[:-5])
+	# Update physical parameters
+	for i in df_market_hvac.index:
+		# Measure current temperature  - but it's actually the temperature from -5min bec it's not synchronized yet !!!
 		df_market_hvac.at[i,'air_temperature'] = float(gridlabd.get_value(df_market_hvac['house_name'].loc[i],'air_temperature')[:-5])
-
-		#Update bidding q to latest demand values
-		#if house_obj['system_mode'] == 'HEAT':
-		if df_market_hvac.at[i,'active'] == 1: #Only update if it was active before
+		# Update P_heat and P_cool based on last activity (only if HVAC was previously active)
+		if df_market_hvac.at[i,'active'] == 1:
 			if gridlabd.get_value(df_market_hvac['house_name'].loc[i],'system_mode') == 'HEAT':
 				if not df_market_hvac.at[i,'heating_system'] == 'GAS':
 					df_market_hvac.at[i,'P_heat'] = float(gridlabd.get_value(df_market_hvac['house_name'].loc[i],'hvac_load')[:-3])
-				# else:
-				# 	import pdb; pdb.set_trace()
-			#elif house_obj['system_mode'] == 'COOL':
 			elif gridlabd.get_value(df_market_hvac['house_name'].loc[i],'system_mode') == 'COOL':
-				#df_market_hvac.at[i,'P_cool'] = float(house_obj['hvac_load'])
-				#print(gridlabd.get_value(df_market_hvac['house_name'].loc[i],'hvac_load'))
 				df_market_hvac.at[i,'P_cool'] = float(gridlabd.get_value(df_market_hvac['house_name'].loc[i],'hvac_load')[:-3])
 	
 	# This makes a forecast of the actual temperature in t (i.e. g(theta_t-1) = est_theta_t )
-
-	T_out = float(gridlabd.get_object('tmy_file')['temperature'])
-	#ind_off = df_market_hvac.loc[(df_market_hvac['active'] == 0)].index
+	# Forecast : theta_t = beta*theta_t-1 + (1-beta)*theta_out_t + m*P_m*gamma_m*duration*d
+	# m = 1 for heating, m = -1 for cooling
+	# d = 1 (dispatch), d = 0 (no dispatch)
+	T_out = float(gridlabd.get_object('weather')['temperature'])
 	df_market_hvac['air_temperature'] = df_market_hvac['beta']*df_market_hvac['air_temperature'] + (1.- df_market_hvac['beta'])*T_out
 	ind_cool = df_market_hvac.loc[(df_market_hvac['active'] == 1) & (df_market_hvac['system_mode'] == 'COOL')].index
-	df_market_hvac['air_temperature'].loc[ind_cool] = df_market_hvac['air_temperature'].loc[ind_cool] - (df_market_hvac['P_cool']*df_market_hvac['gamma_cool']*share_t).loc[ind_cool]
+	df_market_hvac['air_temperature'].loc[ind_cool] = df_market_hvac['air_temperature'].loc[ind_cool] - (df_market_hvac['P_cool']*df_market_hvac['gamma_cool']*interval/3600.).loc[ind_cool]
 	ind_heat = df_market_hvac.loc[(df_market_hvac['active'] == 1) & (df_market_hvac['system_mode'] == 'HEAT')].index
-	df_market_hvac['air_temperature'].loc[ind_heat] = df_market_hvac['air_temperature'].loc[ind_heat] + (df_market_hvac['P_heat']*df_market_hvac['gamma_heat']*share_t).loc[ind_heat]
+	df_market_hvac['air_temperature'].loc[ind_heat] = df_market_hvac['air_temperature'].loc[ind_heat] + (df_market_hvac['P_heat']*df_market_hvac['gamma_heat']*interval/3600.).loc[ind_heat]
 	return df_market_hvac
 
-#Calculates bids for HVAC systems under transactive control: Powernet version - only dependence on T_max/T_min
-# def calc_bids_HVAC(dt_sim_time,df_house_state,retail,mean_p,var_p):
-# 	df_house_state['active'] = 0 #Reset from last period
-# 	df_bids = df_house_state.copy()
-# 	#Calculate bid prices
-# 	#intersection with (p - k*sigma)
-# 	#delta = 3.0 #band of HVAC inactivity
-# 	df_bids['T_h0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 - delta/2
-# 	df_bids['T_c0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 + delta/2
-# 	df_bids['bid_p'] = 0.0 #default
-# 	df_bids['system_mode'] = 'OFF' #default
-# 	#heating
-# 	df_bids.at[df_bids['air_temperature'] <= df_bids['T_h0'],'system_mode'] = 'HEAT'
-# 	df_bids.at[df_bids['system_mode'] == 'HEAT','bid_p'] = (mean_p + df_bids['k']*var_p) + (df_bids['air_temperature']-df_bids['T_min'])*(-2*df_bids['k']*var_p)/(df_bids['T_h0']-df_bids['T_min']).round(prec)
-# 	df_bids.at[df_bids['air_temperature'] <= df_bids['T_min'],'bid_p'] = retail.Pmax
-# 	#cooling
-# 	df_bids.at[df_bids['air_temperature'] >= df_bids['T_c0'],'system_mode'] = 'COOL'
-# 	df_bids.at[df_bids['system_mode'] == 'COOL','bid_p'] = (mean_p + df_bids['k']*var_p) - (df_bids['T_max']-df_bids['air_temperature'])*(2*df_bids['k']*var_p)/(df_bids['T_max']-df_bids['T_c0']).round(prec)
-# 	df_bids.at[df_bids['air_temperature'] >= df_bids['T_max'],'bid_p'] = retail.Pmax
-# 	"""Should we enable negative prices?"""
-# 	df_bids['lower_bound'] = 0.0
-# 	df_bids['upper_bound'] = retail.Pmax
-# 	df_bids['bid_p'] = df_bids[['bid_p','lower_bound']].max(axis=1)
-# 	df_bids['bid_p'] = df_bids[['bid_p','upper_bound']].min(axis=1) #just below the price cap; set upper bound according to global!
-# 	#DO MERGE INSTEAD!!!
-# 	df_house_state['bid_p'] = df_bids['bid_p']
-# 	df_house_state['system_mode'] = df_bids['system_mode']
-# 	return df_house_state
+##############################
+# Determine HVAC bids
+##############################
 
-#Calculates bids for HVAC systems under transactive control: Version dependent on setpoint (closer to TESS)
-# def calc_bids_HVAC(dt_sim_time,df_house_state,retail,mean_p,var_p):
-# 	offset = 1.0
-# 	df_house_state['active'] = 0 #Reset from last period
-# 	df_bids = df_house_state.copy()
-# 	#Calculate bid prices
-# 	#intersection with (p - k*sigma)
-# 	#delta = 3.0 #band of HVAC inactivity
-# 	df_bids['T_h0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 - delta/2
-# 	df_bids['T_c0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 + delta/2
-# 	df_bids['bid_p'] = 0.0 #default
-# 	df_bids['system_mode'] = 'OFF' #default
-# 	#heating
-# 	df_bids['system_mode'].loc[df_bids['air_temperature'] <= df_bids['T_h0']] = 'HEAT'
-# 	heat_ind = df_bids.loc[df_bids['system_mode'] == 'HEAT'].index
-# 	df_bids['bid_p'].loc[heat_ind] = mean_p + df_bids['k'].loc[heat_ind]*var_p*((df_bids['heating_setpoint'].loc[heat_ind] - offset) - df_bids['air_temperature'].loc[heat_ind])
-# 	df_bids['bid_p'].loc[df_bids['air_temperature'] <= df_bids['T_min']] = retail.Pmax
-# 	#cooling
-# 	df_bids['system_mode'].loc[df_bids['air_temperature'] >= df_bids['T_c0']] = 'COOL'
-# 	cool_ind = df_bids.loc[df_bids['system_mode'] == 'COOL'].index
-# 	df_bids['bid_p'].loc[cool_ind] = mean_p + df_bids['k'].loc[cool_ind]*var_p*(df_bids['air_temperature'].loc[cool_ind] - (df_bids['cooling_setpoint'].loc[cool_ind]+1))
-# 	df_bids['bid_p'].loc[df_bids['air_temperature'] >= df_bids['T_max']] = retail.Pmax
-# 	"""Should we enable negative prices?"""
-# 	df_bids['lower_bound'] = 0.0
-# 	df_bids['upper_bound'] = retail.Pmax
-# 	df_bids['bid_p'] = df_bids[['bid_p','lower_bound']].max(axis=1)
-# 	df_bids['bid_p'] = df_bids[['bid_p','upper_bound']].min(axis=1) #just below the price cap; set upper bound according to global!
-# 	#DO MERGE INSTEAD!!!
-# 	df_house_state['bid_p'] = df_bids['bid_p']
-# 	df_house_state['system_mode'] = df_bids['system_mode']
-# 	return df_house_state
+# Determine HVAC bids according to provided HVAC bidding rule
+def determine_bids(dt_sim_time,df_house_state,retail,mean_p,var_p):
+	if HVAC_bid_rule == 'olympic_peninsula':
+		df_house_state = calc_bids_HVAC_olypen(dt_sim_time,df_house_state,retail,mean_p,var_p)
+	elif HVAC_bid_rule == 'quantile':
+		df_house_state = calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p)
+	elif HVAC_bid_rule == 'economic_quadratic':
+		df_house_state = calc_bids_HVAC_economic_quadratic(dt_sim_time,df_house_state,retail,mean_p,var_p)
+	else:
+		print('Provided HVAC rule does not exist.')
+		print('Existing HVAC rules: quantile, economic_quadratic')
+		print('Using quantile as default')
+		df_house_state = calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p)
+	return df_house_state
 
-#Calculates bids for HVAC systems under transactive control: Percentile version
-def calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p):
-	duty_cycle = pandas.read_csv('glm_generation_Austin/HVAC_dutycycle.csv',index_col=[0])[str(dt_sim_time.hour)].loc[dt_sim_time.month]
-	p_min = scipy.stats.norm.ppf(duty_cycle,loc=mean_p,scale=var_p) #var_p is std
-	offset = 1.0
+# Calculates bids for HVAC systems according to bidding function used by Olympic peninsula
+def calc_bids_HVAC_olypen(dt_sim_time,df_house_state,retail,mean_p,var_p):
 	df_house_state['active'] = 0 #Reset from last period
 	df_bids = df_house_state.copy()
-	#Calculate bid prices
-	#intersection with (p - k*sigma)
-	#delta = 3.0 #band of HVAC inactivity
+	
+	# Calculate bid prices
+	delta = 3.0 #band of HVAC inactivity
 	df_bids['T_h0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 - delta/2
 	df_bids['T_c0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 + delta/2
 	df_bids['bid_p'] = 0.0 #default
 	df_bids['system_mode'] = 'OFF' #default
 	#heating
-	df_bids['system_mode'].loc[df_bids['air_temperature'] <= df_bids['T_h0']] = 'HEAT'
-	heat_ind = df_bids.loc[df_bids['system_mode'] == 'HEAT'].index
-	df_bids['bid_p'].loc[heat_ind] = p_min + p_min*(df_bids['heating_setpoint'].loc[heat_ind]/df_bids['air_temperature'].loc[heat_ind] - 1.)*df_bids['k'].loc[heat_ind]
-	df_bids['bid_p'].loc[df_bids['air_temperature'] <= df_bids['T_min']] = retail.Pmax
+	df_bids.at[df_bids['air_temperature'] <= df_bids['T_h0'],'system_mode'] = 'HEAT'
+	df_bids.at[df_bids['system_mode'] == 'HEAT','bid_p'] = (mean_p + df_bids['alpha']*var_p) + (df_bids['air_temperature']-df_bids['T_min'])*(-2*df_bids['alpha']*var_p)/(df_bids['T_h0']-df_bids['T_min']).round(prec)
+	df_bids.at[df_bids['air_temperature'] <= df_bids['T_min'],'bid_p'] = retail.Pmax
 	#cooling
-	df_bids['system_mode'].loc[df_bids['air_temperature'] >= df_bids['T_c0']] = 'COOL'
-	cool_ind = df_bids.loc[df_bids['system_mode'] == 'COOL'].index
-	df_bids['bid_p'].loc[cool_ind] = p_min + p_min*(df_bids['air_temperature'].loc[cool_ind]/df_bids['cooling_setpoint'].loc[cool_ind] - 1.)*df_bids['k'].loc[cool_ind]
-	df_bids['bid_p'].loc[df_bids['air_temperature'] >= df_bids['T_max']] = retail.Pmax
-	"""Should we enable negative prices?"""
-	df_bids['lower_bound'] = 0.0
-	df_bids['upper_bound'] = retail.Pmax
-	df_bids['bid_p'] = df_bids[['bid_p','lower_bound']].max(axis=1)
-	df_bids['bid_p'] = df_bids[['bid_p','upper_bound']].min(axis=1) #just below the price cap; set upper bound according to global!
-	#DO MERGE INSTEAD!!!
+	df_bids.at[df_bids['air_temperature'] >= df_bids['T_c0'],'system_mode'] = 'COOL'
+	df_bids.at[df_bids['system_mode'] == 'COOL','bid_p'] = (mean_p + df_bids['alpha']*var_p) - (df_bids['T_max']-df_bids['air_temperature'])*(2*df_bids['alpha']*var_p)/(df_bids['T_max']-df_bids['T_c0']).round(prec)
+	df_bids.at[df_bids['air_temperature'] >= df_bids['T_max'],'bid_p'] = retail.Pmax
+	
+	# Write bids to dataframe
 	df_house_state['bid_p'] = df_bids['bid_p']
 	df_house_state['system_mode'] = df_bids['system_mode']
 	return df_house_state
 
-#Calculates bids for HVAC systems under transactive control: Percentile version
-def calc_bids_HVAC_stationary(dt_sim_time,df_house_state,retail,mean_p,var_p):
-	T_out = float(gridlabd.get_object('tmy_file')['temperature'])
-
-	#duty_cycle = pandas.read_csv('glm_generation_Austin/HVAC_dutycycle.csv',index_col=[0])[str(dt_sim_time.hour)].loc[dt_sim_time.month]
-	#p_min = scipy.stats.norm.ppf(duty_cycle,loc=mean_p,scale=var_p) #var_p is std
-	#offset = 1.0
-	
+# Calculates bids for HVAC systems as lowest price to realize required duty cycle
+# e.g. if 20% duty cycle is required, 20% percentile of the price distribution is used as max willingness-to-pay
+def calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p):
+	duty_cycle = pandas.read_csv('Input_files/HVAC_dutycycle.csv',index_col=[0])[str(dt_sim_time.hour)].loc[dt_sim_time.month]
+	p_min = scipy.stats.norm.ppf(duty_cycle,loc=mean_p,scale=var_p) #var_p is std
 	df_house_state['active'] = 0 #Reset from last period
 	df_bids = df_house_state.copy()
 	
 	#Calculate bid prices
-	df_bids['bid_p'] = p_min #default
+	delta = 3.0 #band of HVAC inactivity
+	df_bids['T_h0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 - delta/2
+	df_bids['T_c0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 + delta/2
+	df_bids['bid_p'] = 0.0 #default
+	df_bids['system_mode'] = 'OFF' #default
+	# Heating
+	df_bids['system_mode'].loc[df_bids['air_temperature'] <= df_bids['T_h0']] = 'HEAT'
+	heat_ind = df_bids.loc[df_bids['system_mode'] == 'HEAT'].index
+	df_bids['bid_p'].loc[heat_ind] = p_min + p_min*(df_bids['heating_setpoint'].loc[heat_ind]/df_bids['air_temperature'].loc[heat_ind] - 1.)*df_bids['alpha'].loc[heat_ind]
+	df_bids['bid_p'].loc[df_bids['air_temperature'] <= df_bids['T_min']] = retail.Pmax
+	# Cooling
+	df_bids['system_mode'].loc[df_bids['air_temperature'] >= df_bids['T_c0']] = 'COOL'
+	cool_ind = df_bids.loc[df_bids['system_mode'] == 'COOL'].index
+	df_bids['bid_p'].loc[cool_ind] = p_min + p_min*(df_bids['air_temperature'].loc[cool_ind]/df_bids['cooling_setpoint'].loc[cool_ind] - 1.)*df_bids['alpha'].loc[cool_ind]
+	df_bids['bid_p'].loc[df_bids['air_temperature'] >= df_bids['T_max']] = retail.Pmax
+	
+	# Write bids to dataframe
+	df_house_state['bid_p'] = df_bids['bid_p']
+	df_house_state['system_mode'] = df_bids['system_mode']
+	return df_house_state
+
+# Calculates economic bids for HVAC systems with quadratic utility function (thermal comfort)
+def calc_bids_HVAC_economic_quadratic(dt_sim_time,df_house_state,retail,mean_p,var_p):
+	df_house_state['active'] = 0 #Reset from last period
+	df_bids = df_house_state.copy()
+	df_bids['bid_p'] = 0.0 #default
 	df_bids['system_mode'] = 'OFF' #default
 	df_bids['m'] = 0.0 #default
 	df_bids['air_temperature_t+1'] = 0.0
 
-	#import pdb; pdb.set_trace()
-	#print(str(dt_sim_time)+ ': ' + str(df_bids.loc[df_bids['appliance_name'] == 'HVAC_B1_N30_A_0334']['air_temperature'].iloc[0]))
-
-	#determine mode : 
-	# original
-	#df_bids['T_h0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 - delta/2
-	#df_bids['T_c0'] = df_bids['T_min'] + (df_bids['T_max'] - df_bids['T_min'])/2 + delta/2
-	# test 2021/01/16
-	#import pdb; pdb.set_trace()
+	# Determine system mode
+	delta = 0.0
 	df_bids['T_h0'] = df_bids['comf_temperature'] - delta*(df_bids['comf_temperature'] - df_bids['heating_setpoint'])/(df_bids['cooling_setpoint'] - df_bids['heating_setpoint'])
 	df_bids['T_c0'] = df_bids['comf_temperature'] + delta*(df_bids['cooling_setpoint'] - df_bids['comf_temperature'])/(df_bids['cooling_setpoint'] - df_bids['heating_setpoint'])
-	
-	#if dt_sim_time >= pandas.Timestamp(2016,8,2,1):
-	#	import pdb; pdb.set_trace()
-
-	#heating
+	# heating
 	df_bids['system_mode'].loc[df_bids['air_temperature'] <= df_bids['T_h0']] = 'HEAT'
 	df_bids['m'].loc[df_bids['air_temperature'] <= df_bids['T_h0']] = 1.
 	heat_ind = df_bids.loc[df_bids['system_mode'] == 'HEAT'].index
-	
-	#import pdb; pdb.set_trace() #VZ testen (m)
-	#df_bids['air_temperature_t+1'] = df_bids['beta']*df_bids['air_temperature'] + (1. - df_bids['beta'])*T_out + df_bids['m']*df_bids['P_heat']*df_bids['gamma_heat']
-	df_bids['air_temperature_t+1'] = df_bids['beta']*df_bids['air_temperature'] + (1. - df_bids['beta'])*T_out + df_bids['m']*df_bids['P_heat']*df_bids['gamma_heat']*share_t
-	df_bids['air_temperature_mean'] = (df_bids['air_temperature'] + df_bids['air_temperature_t+1'])/2.
-	#df_bids['air_temperature_mean'] = df_bids['air_temperature']
-	#import pdb; pdb.set_trace()
-	df_bids['bid_p'].loc[heat_ind] = (2*df_bids['alpha']*df_bids['gamma_heat']*(df_bids['comf_temperature'] - df_bids['air_temperature_mean'])/(1. - df_bids['beta'])).loc[heat_ind]
-	df_bids['bid_p'].loc[heat_ind] = df_bids['bid_p'].loc[heat_ind]*1000. #USD/MWh
-	#df_bids['bid_p'].loc[df_bids['air_temperature'] <= df_bids['T_min']] = retail.Pmax
-	
-	#cooling
+	# cooling
 	df_bids['system_mode'].loc[df_bids['air_temperature'] >= df_bids['T_c0']] = 'COOL'
 	df_bids['m'].loc[df_bids['air_temperature'] >= df_bids['T_c0']] = -1.
 	cool_ind = df_bids.loc[df_bids['system_mode'] == 'COOL'].index
-	
-	#df_bids['air_temperature_t+1'] = df_bids['beta']*df_bids['air_temperature'] + (1. - df_bids['beta'])*T_out + df_bids['m']*df_bids['P_cool']*df_bids['gamma_cool']
-	#import pdb; pdb.set_trace() # check gamma_cool <0 und Virzeichen
-	df_bids['air_temperature_t+1'] = df_bids['beta']*df_bids['air_temperature'] + (1. - df_bids['beta'])*T_out + df_bids['m']*df_bids['P_cool']*df_bids['gamma_cool']*share_t
+
+	# Estimate new temperature w/o HVAC activity and determine bid
+	T_out = float(gridlabd.get_object('weather')['temperature'])
+	# heating
+	df_bids['air_temperature_t+1'] = df_bids['beta']*df_bids['air_temperature'] + (1. - df_bids['beta'])*T_out + df_bids['m']*df_bids['P_heat']*df_bids['gamma_heat']*interval/3600.
 	df_bids['air_temperature_mean'] = (df_bids['air_temperature'] + df_bids['air_temperature_t+1'])/2.
-	#df_bids['air_temperature_mean'] = df_bids['air_temperature']
-	
+	df_bids['bid_p'].loc[heat_ind] = (2*df_bids['alpha']*df_bids['gamma_heat']*(df_bids['comf_temperature'] - df_bids['air_temperature_mean'])/(1. - df_bids['beta'])).loc[heat_ind]
+	df_bids['bid_p'].loc[heat_ind] = df_bids['bid_p'].loc[heat_ind]*1000. #USD/MWh
+	# cooling
+	df_bids['air_temperature_t+1'] = df_bids['beta']*df_bids['air_temperature'] + (1. - df_bids['beta'])*T_out + df_bids['m']*df_bids['P_cool']*df_bids['gamma_cool']*interval/3600.
+	df_bids['air_temperature_mean'] = (df_bids['air_temperature'] + df_bids['air_temperature_t+1'])/2.
 	df_bids['bid_p'].loc[cool_ind] = (2*df_bids['alpha']*df_bids['gamma_cool']*(df_bids['air_temperature_mean'] - df_bids['comf_temperature'])/(1. - df_bids['beta'])).loc[cool_ind]
 	df_bids['bid_p'].loc[cool_ind] = df_bids['bid_p'].loc[cool_ind]*1000. #USD/MWh
-	#df_bids['bid_p'].loc[df_bids['air_temperature'] >= df_bids['T_max']] = retail.Pmax
-
-
 	
-	"""Should we enable negative prices?: p_min"""
-	df_bids['lower_bound'] = p_min
-	df_bids['upper_bound'] = retail.Pmax
-	df_bids['bid_p'] = df_bids[['bid_p','lower_bound']].max(axis=1)
-	df_bids['bid_p'] = df_bids[['bid_p','upper_bound']].min(axis=1) #just below the price cap; set upper bound according to global!
-	#DO MERGE INSTEAD!!!
+	# Write bids to dataframe
 	df_house_state['bid_p'] = df_bids['bid_p']
 	df_house_state['system_mode'] = df_bids['system_mode']
-	
 	return df_house_state
+
+##############################
+# Submit HVAC bids
+##############################
 
 #Submits HVAC bids to market and saves bids to database
 def submit_bids_HVAC(dt_sim_time,retail,df_bids,df_buy_bids):
 	#Submit bids (in kW)
 	df_bids['bid_q'] = 0.0
 	for ind in df_bids.index: # bids of p_min (or lower) don't get submitted
-		if df_bids['bid_p'].loc[ind] > p_min and df_bids['P_heat'].loc[ind] > 0.0 and df_bids['system_mode'].loc[ind] == 'HEAT':
+		#if df_bids['bid_p'].loc[ind] > p_min and df_bids['P_heat'].loc[ind] > 0.0 and df_bids['system_mode'].loc[ind] == 'HEAT':
+		if df_bids['P_heat'].loc[ind] > 0.0 and df_bids['system_mode'].loc[ind] == 'HEAT':
 			df_bids.at[ind,'bid_q'] = df_bids['P_heat'].loc[ind]
 			retail.buy(df_bids['P_heat'].loc[ind],df_bids['bid_p'].loc[ind],active=int(df_bids['active'].loc[ind]),appliance_name=df_bids['house_name'].loc[ind])
-			#mysql_functions.set_values('buy_bids', '(bid_price,bid_quantity,timedate,appliance_name)',(float(df_bids['bid_p'].loc[ind]),float(df_bids['P_heat'].loc[ind]),dt_sim_time,df_bids['appliance_name'].loc[ind],))
-			#df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,df_bids['appliance_name'].loc[ind],float(df_bids['bid_p'].loc[ind]),float(df_bids['P_heat'].loc[ind]),df_bids['air_temperature'].loc[ind]]]),ignore_index=True)
-			df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,df_bids['appliance_name'].loc[ind],float(df_bids['bid_p'].loc[ind]),float(df_bids['P_heat'].loc[ind])]]),ignore_index=True)
-		elif df_bids['bid_p'].loc[ind] > p_min and df_bids['P_cool'].loc[ind] > 0.0 and df_bids['system_mode'].loc[ind] == 'COOL':
+			df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,df_bids['house_name'].loc[ind],float(df_bids['bid_p'].loc[ind]),float(df_bids['P_heat'].loc[ind])]]),ignore_index=True)
+		#elif df_bids['bid_p'].loc[ind] > p_min and df_bids['P_cool'].loc[ind] > 0.0 and df_bids['system_mode'].loc[ind] == 'COOL':
+		elif df_bids['P_cool'].loc[ind] > 0.0 and df_bids['system_mode'].loc[ind] == 'COOL':
 			df_bids.at[ind,'bid_q'] = df_bids['P_cool'].loc[ind]
 			retail.buy(df_bids['P_cool'].loc[ind],df_bids['bid_p'].loc[ind],active=int(df_bids['active'].loc[ind]),appliance_name=df_bids['house_name'].loc[ind])
-			#mysql_functions.set_values('buy_bids', '(bid_price,bid_quantity,timedate,appliance_name)',(float(df_bids['bid_p'].loc[ind]),float(df_bids['P_cool'].loc[ind]),dt_sim_time,df_bids['appliance_name'].loc[ind],))
-			#df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,df_bids['appliance_name'].loc[ind],float(df_bids['bid_p'].loc[ind]),float(df_bids['P_cool'].loc[ind]),df_bids['air_temperature'].loc[ind]]]),ignore_index=True)
-			df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,df_bids['appliance_name'].loc[ind],float(df_bids['bid_p'].loc[ind]),float(df_bids['P_cool'].loc[ind])]]),ignore_index=True)
+			df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,df_bids['house_name'].loc[ind],float(df_bids['bid_p'].loc[ind]),float(df_bids['P_cool'].loc[ind])]]),ignore_index=True)
 	return retail, df_buy_bids
 
-def set_HVAC_T(dt_sim_time,df_bids_HVAC,mean_p,var_p, Pd):
-	df_bids_HVAC.at[df_bids_HVAC['bid_p'] >= Pd,'active'] = 1
-	df_bids_HVAC['p_max'] = mean_p+df_bids_HVAC['k']*var_p
+##############################
+# Set HVACs according to price
+##############################
 
-	df_bids_HVAC['temp'] = df_bids_HVAC['T_min'] + (df_bids_HVAC['p_max'] - Pd)*(df_bids_HVAC['T_h0'] - df_bids_HVAC['T_min'])/(2*df_bids_HVAC['k']*var_p)
-	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_min']].max(axis=1)
-	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_h0']].min(axis=1)
-	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'HEAT','heating_setpoint'] = df_bids_HVAC['temp']
-	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'HEAT','cooling_setpoint'] = p_max #where should those be to not harm?
-	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'OFF','cooling_setpoint'] = p_max #where should those be to not harm?
-	
-	df_bids_HVAC['temp'] = df_bids_HVAC['T_max'] + (df_bids_HVAC['p_max'] - Pd)*(df_bids_HVAC['T_c0'] - df_bids_HVAC['T_max'])/(2*df_bids_HVAC['k']*var_p)
-	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_c0']].max(axis=1)
-	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_max']].min(axis=1)
-	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'COOL','cooling_setpoint'] = df_bids_HVAC['temp']
-	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'COOL','heating_setpoint'] = 0.0 #where should those be to not harm?
-	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'OFF','heating_setpoint'] = 0.0 #where should those be to not harm?
+# Sets HVAC after market clearing
+def set_HVAC(dt_sim_time,df_house_state,mean_p,var_p, retail,df_awarded_bids):
+	if allocation_rule == 'by_price':
+		# All buy bids above or at the clearing price dispatch (vice versa for demand)
+		df_house_state,df_awarded_bids = set_HVAC_by_price(dt_sim_time,df_house_state,mean_p,var_p, retail.Pd,df_awarded_bids) #Switches the HVAC system on and off directly (depending on bid >= p)
+	elif allocation_rule == 'by_award':
+		# Bids only dispatch if explicitely selected by market operator (concerns bids == clearing_price)
+		df_house_state,df_awarded_bids = set_HVAC_by_award(dt_sim_time,df_house_state,retail,df_awarded_bids) #Switches the HVAC system on and off directly (depending on award)
+	elif allocation_rule == 'statistical':
+		# Only statistical HVAC dispatch through setpoint
+		df_house_state = set_HVAC_T(dt_sim_time,df_house_state,mean_p,var_p, retail.Pd)
+	else:
+		df_house_state,df_awarded_bids = set_HVAC_by_price(dt_sim_time,df_house_state,mean_p,var_p, retail.Pd,df_awarded_bids)
+	return df_house_state,df_awarded_bids
 
-	#Write to GridlabD objects
-	#Read information via database later on!
-	for house in houselist:		
-		cooling_setpoint = df_bids_HVAC['cooling_setpoint'].loc[df_bids_HVAC['house_name'] == house].values[0]
-		heating_setpoint = df_bids_HVAC['heating_setpoint'].loc[df_bids_HVAC['house_name'] == house].values[0]
-		active = df_bids_HVAC['active'].loc[df_bids_HVAC['house_name'] == house].values[0]
-		#Can I do that for the whole table with a dataframe?
-		#mysql_functions.set_values('market_HVAC_meter', '(system_mode,heating_setpoint,cooling_setpoint,active,timedate,appliance_id)',('OFF',float(heating_setpoint),float(cooling_setpoint),int(active),dt_sim_time,houselist.index(house)+1,))
-		#Write to gridlabd (to be done from mysql in future)
-		gridlabd_functions.set(house,'cooling_setpoint',cooling_setpoint)
-		gridlabd_functions.set(house,'heating_setpoint',heating_setpoint)
+# Determines `active' based on price
+def set_HVAC_by_price(dt_sim_time,df_house_state,mean_p,var_p, Pd,df_awarded_bids):
+	#df_house_state.at[(df_house_state['bid_p'] >= Pd) & (df_house_state['bid_p'] > p_min),'active'] = 1
+	df_house_state.at[(df_house_state['bid_p'] >= Pd),'active'] = 1
+	df_house_state,df_awarded_bids = set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids)
+	return df_house_state, df_awarded_bids
 
-	return df_bids_HVAC
+# Determines `active' based on market result
+def set_HVAC_by_award(dt_sim_time,df_house_state,market,df_awarded_bids):
+	try:
+		list_awards = market.D_awarded[:,3]
+	except:
+		list_awards = []
+	for bidder in list_awards:
+		if 'GLD_' in bidder:
+			df_house_state.at[df_house_state['house_name'] == bidder,'active'] = 1
+	df_house_state, df_awarded_bids = set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids)
+	return df_house_state,df_awarded_bids
 
+# Implements `active'
 def set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids):
 	for ind in df_house_state.index:		
 		house = df_house_state['house_name'].loc[ind]
@@ -358,177 +271,33 @@ def set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids):
 			gridlabd.set_value(house,'system_mode',system_mode)
 	return df_house_state,df_awarded_bids
 
-def set_HVAC_by_price(dt_sim_time,df_house_state,mean_p,var_p, Pd,df_awarded_bids):
-	df_house_state.at[(df_house_state['bid_p'] >= Pd) & (df_house_state['bid_p'] > p_min),'active'] = 1
-	df_house_state,df_awarded_bids = set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids)
-	return df_house_state, df_awarded_bids
+# No specific, but statistical HVAC dispatch
+def set_HVAC_T(dt_sim_time,df_bids_HVAC,mean_p,var_p, Pd):
+	df_bids_HVAC['p_max'] = mean_p+df_bids_HVAC['alpha']*var_p
+	delta = 0.0
+	df_bids_HVAC['T_h0'] = df_bids_HVAC['comf_temperature'] - delta*(df_bids_HVAC['comf_temperature'] - df_bids_HVAC['heating_setpoint'])/(df_bids_HVAC['cooling_setpoint'] - df_bids_HVAC['heating_setpoint'])
+	df_bids_HVAC['T_c0'] = df_bids_HVAC['comf_temperature'] + delta*(df_bids_HVAC['cooling_setpoint'] - df_bids_HVAC['comf_temperature'])/(df_bids_HVAC['cooling_setpoint'] - df_bids_HVAC['heating_setpoint'])
 
-def set_HVAC_by_award(dt_sim_time,df_house_state,market,df_awarded_bids):
-	try:
-		list_awards = market.D_awarded[:,3]
-	except:
-		list_awards = []
-	for bidder in list_awards:
-		if 'GLD_' in bidder:
-			df_house_state.at[df_house_state['house_name'] == bidder,'active'] = 1
-	df_house_state, df_awarded_bids = set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids)
-	return df_house_state,df_awarded_bids
-
-"""OLD FUNCTIONS / NO MYSQL DATABASE AVAILABLE"""
-
-#Bid functions
-def bid_rule_HVAC(house, mean_p, var_p, interval):
-	control_type = gridlabd_functions.get(house,'control_type')['value']
-	k = float(gridlabd_functions.get(house,'k')['value'][1:])
+	df_bids_HVAC['temp'] = df_bids_HVAC['T_min'] + (df_bids_HVAC['p_max'] - Pd)*(df_bids_HVAC['T_h0'] - df_bids_HVAC['T_min'])/(2*df_bids_HVAC['alpha']*var_p)
+	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_min']].max(axis=1)
+	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_h0']].min(axis=1)
+	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'HEAT','heating_setpoint'] = df_bids_HVAC['temp']
+	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'HEAT','cooling_setpoint'] = df_bids_HVAC['p_max'].loc[df_bids_HVAC['system_mode'] == 'HEAT'] #p_max
+	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'OFF','cooling_setpoint'] = df_bids_HVAC['p_max'].loc[df_bids_HVAC['system_mode'] == 'COOL']#p_max
 	
-	T_c_set = float(gridlabd_functions.get(house,'T_c_set_0')['value'][1:])
-	T_h_set = float(gridlabd_functions.get(house,'T_h_set_0')['value'][1:])
-	#T_curr = float(gridlabd_functions.get(house,'air_temperature')['value'][1:-5])
-	#calculate energy
-	hvac_q = float(gridlabd_functions.get(house,'cooling_demand')['value'][1:-3]) * interval / (60*60)
-	heat_q = float(gridlabd_functions.get(house,'heating_demand')['value'][1:-3]) * interval / (60*60)
+	df_bids_HVAC['temp'] = df_bids_HVAC['T_max'] + (df_bids_HVAC['p_max'] - Pd)*(df_bids_HVAC['T_c0'] - df_bids_HVAC['T_max'])/(2*df_bids_HVAC['alpha']*var_p)
+	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_c0']].max(axis=1)
+	df_bids_HVAC['temp'] = df_bids_HVAC[['temp','T_max']].min(axis=1)
+	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'COOL','cooling_setpoint'] = df_bids_HVAC['temp']
+	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'COOL','heating_setpoint'] = 0.0
+	df_bids_HVAC.loc[df_bids_HVAC['system_mode'] == 'OFF','heating_setpoint'] = 0.0
 
-	#State of appliance in previous period
-	status = int(gridlabd_functions.get(house,'state')['value'])
-	
-	if 'deadband' in control_type:
-		# cooling
-		if T_curr > T_c_set + k:
-			bid_price = 1
-			bid_quantity = hvac_q	
-			gridlabd_functions.set(house,'bid_mode','COOL')		
-			return bid_quantity, bid_price, status
-		# heating
-		elif T_curr < T_h_set - k:
-			bid_price = 1
-			bid_quantity = heat_q	
-			gridlabd_functions.set(house,'bid_mode','HEAT')			
-			return bid_quantity, bid_price, status
-		# no activity
-		else:
-			bid_price = 0
-			bid_quantity = 0
-			gridlabd_functions.set(house,'bid_mode','NONE')	
-			return bid_quantity, bid_price, status
-	
-	elif 'trans' in control_type:
-		# Non-bid region size between cooling and heating [F]
-		epsilon = 2
-		bid_price = transactive_price(house, T_curr, T_c_set, T_h_set, mean_p, var_p, epsilon)
-		if T_curr > T_c_set - (T_c_set - T_h_set)/2 + epsilon/2: #above T_c_zero
-			bid_quantity = hvac_q
-			gridlabd_functions.set(house,'bid_mode','COOL')
-		elif T_curr < T_h_set + (T_c_set - T_h_set)/2 - epsilon/2: #below T_h_zero
-			bid_quantity = heat_q
-			gridlabd_functions.set(house,'bid_mode','HEAT')
-		else:
-			bid_quantity = 0
-			gridlabd_functions.set(house,'bid_mode','NONE')
-		return bid_quantity, bid_price, status
-	else:
-		print('Bid reserve price could not be calculated')
-		return 0,0,0
+	#Write new temperature setpoints to GridlabD objects
+	for ind in df_bids_HVAC.index:	
+		house = df_bids_HVAC['house_name'].loc[ind]	
+		cooling_setpoint = df_bids_HVAC['cooling_setpoint'].loc[ind]
+		heating_setpoint = df_bids_HVAC['heating_setpoint'].loc[ind]
+		gridlabd.set_value(house,'cooling_setpoint',str(cooling_setpoint))
+		gridlabd.set_value(house,'heating_setpoint',str(heating_setpoint))
 
-# with non-bid region of size epsilon between T_h and T_c
-def transactive_price(house, T_curr, T_c_set, T_h_set, mean_p, var_p, epsilon):
-	T_zero_h = T_h_set + (T_c_set - T_h_set)/2 - epsilon/2
-	T_zero_c = T_c_set - (T_c_set - T_h_set)/2 + epsilon/2
-	T_max = float(gridlabd_functions.get(house,'T_max')['value'][1:])
-	T_min = float(gridlabd_functions.get(house,'T_min')['value'][1:])
-	k = float(gridlabd_functions.get(house,'k')['value'][1:])
-	if T_curr > T_max or T_curr < T_min:
-		return 1 #max price
-	# cooling
-	elif T_curr > T_zero_c:
-		#Remains here if comfort settings are changed during operation
-		m = (mean_p + k * np.sqrt(var_p))/(T_max - T_zero_c)
-		gridlabd_functions.set(house,'m',m)
-		n = - m * T_zero_c
-		gridlabd_functions.set(house,'n',n)
-		return (m * T_curr + n)
-	# heating
-	elif T_curr < T_zero_h:
-		m = (mean_p + k * np.sqrt(var_p))/(T_min - T_zero_h)
-		gridlabd_functions.set(house,'m',m)
-		n = - m * T_zero_h
-		gridlabd_functions.set(house,'n',n)
-		return (m * T_curr + n)
-	else:
-		return 0
-
-#Set rule: control HVAC by control of system mode
-# def set_HVAC_direct(house,control_type,bid_price,Pd):
-# 	if bid_price >= Pd and bid_price > 0: #to exclude consumption when price is zero
-# 		#Appliance is active
-# 		gridlabd_functions.set(house,'state',True)
-# 		#switch on HVAC
-# 		if 'COOL' in gridlabd_functions.get(house,'bid_mode')['value']:
-# 			gridlabd_functions.set(house,'system_mode','COOL')
-# 		elif 'HEAT' in gridlabd_functions.get(house,'bid_mode')['value']:
-# 			gridlabd_functions.set(house,'system_mode','HEAT')
-# 		else:
-# 			print 'Check bid mode - there might be an inconsistency in bidding and actual behavior'
-# 		return
-# 	else:
-# 		#Appliance is not active
-# 		gridlabd_functions.set(house,'state',False)
-# 		#turn off HVAC
-# 		gridlabd_functions.set(house,'system_mode','OFF')
-# 		return
-
-#Set rule: control HVAC by control of set point
-def set_HVAC_setpoint(house,control_type,bid_price,Pd):
-
-	#Set state: Load is active in that period
-	if bid_price >= Pd:
-		gridlabd_functions.set(house,'state',True)
-	else:
-		gridlabd_functions.set(house,'state',False)
-
-	if 'deadband' in control_type:
-		if bid_price >= Pd and bid_price > 0: #to exclude consumption when price is zero
-			#switch on HVAC
-			if 'COOL' in gridlabd_functions.get(house,'bid_mode')['value']:
-				gridlabd_functions.set(house,'system_mode','COOL')
-			elif 'HEAT' in gridlabd_functions.get(house,'bid_mode')['value']:
-				gridlabd_functions.set(house,'system_mode','HEAT')
-			else:
-				print('Check bid mode - there might be an inconsistency in bidding and actual behavior')
-			return
-		else:
-			#turn off HVAC
-			gridlabd_functions.set(house,'system_mode','OFF')
-			#gridlabd_functions.set('control_1','control','OFF')
-			return
-
-	elif ('trans' in control_type): 
-
-		m = float(gridlabd_functions.get(house,'m')['value'])
-		n = float(gridlabd_functions.get(house,'n')['value'])
-		T_max = float(gridlabd_functions.get(house,'T_max')['value'][1:])
-		T_min = float(gridlabd_functions.get(house,'T_min')['value'][1:])
-
-		#change setpoint on HVAC
-		if 'COOL' in gridlabd_functions.get(house,'bid_mode')['value']:
-			gridlabd_functions.set(house,'system_mode','COOL')
-			# calculate new setpoint
-			T_c_set_new = (Pd - n)/m
-			if T_c_set_new > T_max:
-				gridlabd_functions.set(house,'cooling_setpoint',T_max)
-			else:
-				gridlabd_functions.set(house,'cooling_setpoint',T_c_set_new)
-		
-		elif 'HEAT' in gridlabd_functions.get(house,'bid_mode')['value']:
-			gridlabd_functions.set(house,'system_mode','HEAT')
-			#calculate new setpoint
-			T_h_set_new = (Pd - n)/m
-			if T_h_set_new < T_min:
-				gridlabd_functions.set(house,'heating_setpoint',T_min)
-			else:
-				gridlabd_functions.set(house,'heating_setpoint',T_h_set_new)
-		else:
-			gridlabd_functions.set(house,'system_mode','OFF')
-		return
-	else:
-		print('HVAC could not be set')
-		return
+	return df_bids_HVAC

@@ -4,7 +4,7 @@ Defines functions for the HH
 Uses direct setting of system mode
 """
 import gridlabd
-import gridlabd_functions
+#import gridlabd_functions
 #from gridlabd_functions import p_max # ???????????????
 #import mysql_functions
 #from HH_global import *
@@ -18,7 +18,7 @@ from datetime import timedelta
 """NEW FUNCTIONS / MYSQL DATABASE AVAILABLE"""
 
 #HVAC
-from HH_global import flexible_houses, C, p_max, interval, prec, load_forecast, city, month
+from HH_global import interval, prec, load_forecast, city, month
 
 def get_settings(pvlist,interval,mysql=False):
       cols_PV = ['PV_name','house_name','inverter_name','rated_power','P_Out']

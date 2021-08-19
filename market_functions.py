@@ -20,7 +20,7 @@ import datetime
 from datetime import timedelta
 import gridlabd
 import pandas
-from HH_global import flexible_houses, C, p_max, interval, city, prec, ref_price, price_intervals, load_forecast, unresp_factor, month, which_price, EV_data
+from HH_global import interval, city, prec, ref_price, price_intervals, load_forecast, unresp_factor, month, which_price, EV_data, slack_node
 #import mysql_functions
 import time
 
@@ -56,7 +56,7 @@ def create_market(df_WS,df_prices,p_max,prec,price_intervals,dt_sim_time):
     return retail, mean_p, var_p
 
 def include_unresp_load(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids):
-    load_SLACK = float(gridlabd.get_object('node_149')['measured_real_power'])/1000 #measured_real_power in [W]
+    load_SLACK = float(gridlabd.get_object(slack_node)['measured_real_power'])/1000 #measured_real_power in [W]
     #print('Slack '+str(load_SLACK))
     #Alternatively: All loads which have been bidding and active in prev period
     dt = datetime.timedelta(seconds=interval)
@@ -109,7 +109,7 @@ def include_unresp_load(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids
         #print('Unresp load: '+str(unresp_load))
     retail.buy(unresp_load,appliance_name='unresp')
     #df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,'unresponsive_loads',p_max,round(float(unresp_load),prec),'None']]),ignore_index=True)
-    df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,'unresponsive_loads',p_max,round(float(unresp_load),prec)]]),ignore_index=True)
+    df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,'unresponsive_loads',retail.Pmax,round(float(unresp_load),prec)]]),ignore_index=True)
     #mysql_functions.set_values('buy_bids', '(bid_price,bid_quantity,timedate,appliance_name)',(p_max,round(float(unresp_load),prec),dt_sim_time,'unresponsive_loads',))
     return retail, load_SLACK, unresp_load, df_buy_bids
 
