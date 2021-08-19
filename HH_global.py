@@ -6,25 +6,32 @@ if not os.path.exists(results_folder):
 	os.makedirs(results_folder)
 
 # Pricing
-pricing = 'LEM' # to be implemented
+pricing = 'LEM' # Options: fixed, LEM ; to be implemented: ToU
 
 # For glm
 glm_model = 'default_model.glm'
 slack_node = 'node_149'
 
 # For market
-interval = 300
-HVAC_bid_rule = 'quantile'
-allocation_rule = 'statistical'
+interval = 300 # runs market every X second
+p_min = -10000.0
+p_max = 10000.0
 C_import = 1000.
 C_export = 0. # no export allowed
 market_data = 'Ercot_LZ_South.csv'
 grid_tariffs = 0.0 # [USD/kWh] additional price component, gets added to cost of supply
+allocation_rule = 'price'
+
+# Customer behavior
+HVAC_bid_rule = 'quantile'
+PV_bid_rule = 'zero_MC'
+PV_forecast_rule = 'myopic' # Option: myopic, perfect
+PV_forecast = '' # Refers to file with PV forecast
 
 #glm parameters
 city = 'Austin'
 month = 'july'
-start_time_str = '2016-07-31 00:00'
+start_time_str = '2016-07-31 12:00'
 end_time_str = '2016-08-08 00:00'
 player_dir = 'players_Austin'
 tmy_file = '722540TYA.tmy3'
@@ -34,8 +41,7 @@ EV_data = 'None'
 
 #Market parameters
 
-p_min = 0.0
-p_max = 10000.0
+
 load_forecast = 'myopic'
 unresp_factor = 1.0
 FIXED_TARIFF = False

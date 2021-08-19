@@ -1,14 +1,8 @@
 """
-Defines functions for the HH
+Defines relevant functions for EV systems
 
-Uses direct setting of system mode
 """
 import gridlabd
-#import gridlabd_functions
-#from gridlabd_functions import p_max # ???????????????
-#import mysql_functions
-#from HH_global import *
-
 import datetime
 import numpy as np
 import pandas

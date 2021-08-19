@@ -5,7 +5,6 @@ import gridlabd
 import pandas
 from dateutil import parser
 from datetime import timedelta
-import scipy.stats
 
 from HH_global import interval, HVAC_bid_rule, allocation_rule
 
@@ -46,7 +45,7 @@ def get_settings_houses(houselist,interval,mysql=False):
 
 	return df_market_hvac
 
-#Read previous temperature of each house and forecast current temperature (not synchronized yet!!)
+# Read previous temperature of each house (not synchronized yet, so temperature from t-1) and forecast current temperature in t
 def update_house(dt_sim_time,df_market_hvac):
 	# Update physical parameters
 	for i in df_market_hvac.index:
@@ -70,6 +69,7 @@ def update_house(dt_sim_time,df_market_hvac):
 	df_market_hvac['air_temperature'].loc[ind_cool] = df_market_hvac['air_temperature'].loc[ind_cool] - (df_market_hvac['P_cool']*df_market_hvac['gamma_cool']*interval/3600.).loc[ind_cool]
 	ind_heat = df_market_hvac.loc[(df_market_hvac['active'] == 1) & (df_market_hvac['system_mode'] == 'HEAT')].index
 	df_market_hvac['air_temperature'].loc[ind_heat] = df_market_hvac['air_temperature'].loc[ind_heat] + (df_market_hvac['P_heat']*df_market_hvac['gamma_heat']*interval/3600.).loc[ind_heat]
+	df_market_hvac['active'] = 0 #Reset from last period
 	return df_market_hvac
 
 ##############################
@@ -86,14 +86,13 @@ def determine_bids(dt_sim_time,df_house_state,retail,mean_p,var_p):
 		df_house_state = calc_bids_HVAC_economic_quadratic(dt_sim_time,df_house_state,retail,mean_p,var_p)
 	else:
 		print('Provided HVAC rule does not exist.')
-		print('Existing HVAC rules: quantile, economic_quadratic')
-		print('Using quantile as default')
-		df_house_state = calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p)
+		print('Existing HVAC rules: olympic_peninsula, quantile, economic_quadratic')
+		print('Using olympic_peninsula as default')
+		df_house_state = calc_bids_HVAC_olypen(dt_sim_time,df_house_state,retail,mean_p,var_p)
 	return df_house_state
 
 # Calculates bids for HVAC systems according to bidding function used by Olympic peninsula
 def calc_bids_HVAC_olypen(dt_sim_time,df_house_state,retail,mean_p,var_p):
-	df_house_state['active'] = 0 #Reset from last period
 	df_bids = df_house_state.copy()
 	
 	# Calculate bid prices
@@ -120,8 +119,8 @@ def calc_bids_HVAC_olypen(dt_sim_time,df_house_state,retail,mean_p,var_p):
 # e.g. if 20% duty cycle is required, 20% percentile of the price distribution is used as max willingness-to-pay
 def calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p):
 	duty_cycle = pandas.read_csv('Input_files/HVAC_dutycycle.csv',index_col=[0])[str(dt_sim_time.hour)].loc[dt_sim_time.month]
+	import scipy.stats
 	p_min = scipy.stats.norm.ppf(duty_cycle,loc=mean_p,scale=var_p) #var_p is std
-	df_house_state['active'] = 0 #Reset from last period
 	df_bids = df_house_state.copy()
 	
 	#Calculate bid prices
@@ -148,7 +147,6 @@ def calc_bids_HVAC_cdf(dt_sim_time,df_house_state,retail,mean_p,var_p):
 
 # Calculates economic bids for HVAC systems with quadratic utility function (thermal comfort)
 def calc_bids_HVAC_economic_quadratic(dt_sim_time,df_house_state,retail,mean_p,var_p):
-	df_house_state['active'] = 0 #Reset from last period
 	df_bids = df_house_state.copy()
 	df_bids['bid_p'] = 0.0 #default
 	df_bids['system_mode'] = 'OFF' #default
@@ -190,7 +188,7 @@ def calc_bids_HVAC_economic_quadratic(dt_sim_time,df_house_state,retail,mean_p,v
 # Submit HVAC bids
 ##############################
 
-#Submits HVAC bids to market and saves bids to database
+#Submits HVAC bids to market
 def submit_bids_HVAC(dt_sim_time,retail,df_bids,df_buy_bids):
 	#Submit bids (in kW)
 	df_bids['bid_q'] = 0.0
@@ -258,15 +256,12 @@ def set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids):
 			gridlabd.set_value(house,'thermostat_control',thermostat_control)
 		#Set system_mode for active systems
 		if df_house_state['active'].loc[ind] == 1:
-			#import pdb; pdb.set_trace()
 			system_mode = df_house_state['system_mode'].loc[ind]
 			gridlabd.set_value(house,'system_mode',system_mode) #Cool or heat
 			p_bid = df_house_state['bid_p'].loc[ind]
 			q_bid = df_house_state['bid_q'].loc[ind]
-			#mysql_functions.set_values('awarded_bids','(appliance_name,p_bid,q_bid,timedate)',(house,float(p_bid),float(q_bid),dt_sim_time))
 			df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,house,float(p_bid),float(q_bid),'D']]),ignore_index=True)
 		elif not ((df_house_state['system_mode'].loc[ind] == 'HEAT') and (df_house_state['heating_system'].loc[ind] == 'GAS')):
-			#import pdb; pdb.set_trace()
 			system_mode = 'OFF'
 			gridlabd.set_value(house,'system_mode',system_mode)
 	return df_house_state,df_awarded_bids

@@ -1,5 +1,6 @@
 import simulate_system
 
-model = 'default_model.glm'
+# Generate benchmark scenario
 
+# Start system
 simulate_system.run_system()

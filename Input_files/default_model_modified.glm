@@ -13,7 +13,7 @@
 #set randomseed=5
 
 clock {
-	starttime "2016-08-01 00:00";
+	starttime "2016-07-31 12:00";
 	stoptime "2016-08-08 00:00";
 }
 
@@ -40,50 +40,43 @@ module residential{
 
 ///////////////////////////////////////////////////////
 //
-// Import of the market code
-//
-///////////////////////////////////////////////////////
-
-module LEM;
-
-///////////////////////////////////////////////////////
-//
 // Definition of distribution system
 //
 ///////////////////////////////////////////////////////
 
+module LEM;
 class player {
 	double value;
 }
 
 object player {
 	name player_0;
-	file players_Austin/ps_101_2016.player;
+	file Input_files/players/ps_101_2016.player;
 }
 
 object player {
 	name player_1;
-	file players_Austin/ps_114_2016.player;
+	file Input_files/players/ps_114_2016.player;
 }
 
 object player {
 	name player_2;
-	file players_Austin/ps_115_2016.player;
+	file Input_files/players/ps_115_2016.player;
 }
 
 object player {
 	name player_3;
-	file players_Austin/ps_1086_2016.player;
+	file Input_files/players/ps_1086_2016.player;
 }
 
 object player {
 	name player_4;
-	file players_Austin/ps_1103_2016.player;
+	file Input_files/players/ps_1103_2016.player;
 }
 
 object player {
 	name player_5;
-	file players_Austin/ps_1169_2016.player;
+	file Input_files/players/ps_1169_2016.player;
 }
 
 object meter {
@@ -93,7 +86,7 @@ object meter {
 	bustype SWING;
 	object recorder {
 		property measured_real_power, measured_reactive_power; 
-		file Results/load_node_149.csv;
+		file Results/substation.csv;
 		interval 300;
 	};
 }
@@ -181,16 +174,13 @@ object line_spacing {
 	distance_CE 28.0;
 	distance_NE 24.0;
 }
+
 object meter {
 	name main_node;
 	nominal_voltage 24.941kV;
 	phases ABCN;
-	object recorder {
-		property measured_real_power, measured_reactive_power; 
-		file Results/main_node_149.csv;
-		interval 60;
-	};
 }
+
 object meter {
 	name main_node_A;
 	parent main_node;
@@ -241,9 +231,9 @@ object transformer_configuration {
 global int32 SEQ_CUSTID 0;
 #set allow_reinclude=true
 
-#include using(LOADID=1,PHASE=A,COUNT=2) "house.glm"
-#include using(LOADID=1,PHASE=B,COUNT=2) "house.glm"
-#include using(LOADID=1,PHASE=C,COUNT=2) "house.glm"
+#include using(LOADID=1,PHASE=A,COUNT=2) "Input_files/house.glm"
+#include using(LOADID=1,PHASE=B,COUNT=2) "Input_files/house.glm"
+#include using(LOADID=1,PHASE=C,COUNT=2) "Input_files/house.glm"
 
 object group_recorder {
 	name rec_meter_load_P;
@@ -292,3 +282,12 @@ object group_recorder {
 	file Results/total_P_Out.csv;
 	interval 300;
 }
+
+object group_recorder {
+	name rec_ZIP;
+	group "class=ZIPload";
+	property base_power;
+	file Results/ZIP_load.csv;
+	interval 300;
+}
+

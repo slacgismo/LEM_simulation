@@ -23,7 +23,6 @@ from HH_global import grid_tariffs
 results_folder = 'Results'
 share_t = 1/12. # 5 min / 1 hour
 file_perfect_PV_forecast = 'glm_generation_Austin/perfect_PV_forecast_july_all.csv'
-file_market_data = 'glm_generation_Austin/Ercot_LZ_South.csv'
 saving_interval = 24
 
 def on_init(t):
@@ -56,6 +55,10 @@ def on_init(t):
 	global df_PV_state;
 	df_PV_state = PVfct.get_settings(pvlist,interval)
 
+	# Disable GLD internal control to replace with market control
+	for house in houses:
+		gridlabd.set_value(house,'thermostat_control','NONE')
+
 	# If available, read in perfect PV forecast
 	if load_forecast == 'perfect':
 		global df_PV_forecast;
@@ -72,7 +75,7 @@ def on_init(t):
 
 	# If available, read in historic market data
 	global df_WS;
-	df_WS = pandas.read_csv(file_market_data,parse_dates=[-1],index_col=[0])
+	df_WS = pandas.read_csv('Input_files/' + market_data,parse_dates=[-1],index_col=[0])
 	df_WS = pandas.DataFrame(index=pandas.to_datetime(df_WS.index.astype(str)),columns=df_WS.columns,data=df_WS.values.astype(float))
 	df_WS['time'] = df_WS.index
 	df_WS.drop_duplicates(subset='time',keep='last',inplace=True)
@@ -161,7 +164,7 @@ def on_precommit(t):
 		if len(pvlist) > 0:
 			global df_PV_forecast;
 			if (load_forecast == 'myopic') or (df_PV_forecast is None):
-				df_PV_state = PVfct.calc_bids_PV(dt_sim_time,df_PV_state,retail)
+				df_PV_state = PVfct.determine_bids(dt_sim_time,df_PV_state,retail)
 				retail,df_supply_bids = PVfct.submit_bids_PV(dt_sim_time,retail,df_PV_state,df_supply_bids)
 			elif load_forecast == 'perfect':
 				#PV_forecast = df_PV_forecast['PV_infeed'].loc[dt_sim_time]
@@ -189,6 +192,9 @@ def on_precommit(t):
 
 		retail.clear()
 		Pd = retail.Pd # cleared demand price
+		if (dt_sim_time.hour == 13) or (dt_sim_time.hour == 15):
+			retail.Pd = -10.
+			Pd = -10.
 		Qd = retail.Qd #in kW
 		df_temp = pandas.DataFrame(index=[dt_sim_time],columns=['clearing_price','clearing_quantity','unresponsive_loads'],data=[[Pd,Qd,unresp_load]])
 		df_prices = df_prices.append(df_temp)
@@ -202,7 +208,7 @@ def on_precommit(t):
 
 		# PV
 		if len(pvlist) > 0:
-			df_awarded_bids = PVfct.set_PV(dt_sim_time,retail,df_PV_state,df_awarded_bids)
+			df_PV_state, df_awarded_bids = PVfct.set_PV(dt_sim_time,retail,df_PV_state,df_awarded_bids)
 
 		# Battery
 		if len(batterylist) > 0:
