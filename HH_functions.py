@@ -188,7 +188,7 @@ def calc_bids_HVAC_economic_quadratic(dt_sim_time,df_house_state,retail,mean_p,v
 # Submit HVAC bids
 ##############################
 
-#Submits HVAC bids to market
+# Submits HVAC bids to market
 def submit_bids_HVAC(dt_sim_time,retail,df_bids,df_buy_bids):
 	#Submit bids (in kW)
 	df_bids['bid_q'] = 0.0
@@ -206,7 +206,7 @@ def submit_bids_HVAC(dt_sim_time,retail,df_bids,df_buy_bids):
 	return retail, df_buy_bids
 
 ##############################
-# Set HVACs according to price
+# Set HVACs according to allocation rule
 ##############################
 
 # Sets HVAC after market clearing
@@ -226,13 +226,15 @@ def set_HVAC(dt_sim_time,df_house_state,mean_p,var_p, retail,df_awarded_bids):
 
 # Determines `active' based on price
 def set_HVAC_by_price(dt_sim_time,df_house_state,mean_p,var_p, Pd,df_awarded_bids):
-	#df_house_state.at[(df_house_state['bid_p'] >= Pd) & (df_house_state['bid_p'] > p_min),'active'] = 1
+	# Determine activity
 	df_house_state.at[(df_house_state['bid_p'] >= Pd),'active'] = 1
+	# Switch HVAC system ON or OFF
 	df_house_state,df_awarded_bids = set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids)
 	return df_house_state, df_awarded_bids
 
 # Determines `active' based on market result
 def set_HVAC_by_award(dt_sim_time,df_house_state,market,df_awarded_bids):
+	# Determine activity
 	try:
 		list_awards = market.D_awarded[:,3]
 	except:
@@ -240,6 +242,7 @@ def set_HVAC_by_award(dt_sim_time,df_house_state,market,df_awarded_bids):
 	for bidder in list_awards:
 		if 'GLD_' in bidder:
 			df_house_state.at[df_house_state['house_name'] == bidder,'active'] = 1
+	# Switch HVAC system ON or OFF
 	df_house_state, df_awarded_bids = set_HVAC_GLD(dt_sim_time,df_house_state,df_awarded_bids)
 	return df_house_state,df_awarded_bids
 

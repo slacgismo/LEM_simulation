@@ -1,7 +1,7 @@
-,PV_name,house_name,inverter_name,rated_power,P_Out,P_before_curt,active,active_t1,p_sell,q_sell
-0,PV_1,GLD_1,PV_inverter_1,30.0,0.253561,0.721722,-1,1.0,0.0,0.283204
-1,PV_2,GLD_2,PV_inverter_2,30.0,0.390181,1.11059,-1,1.0,0.0,0.43579500000000004
-2,PV_3,GLD_3,PV_inverter_3,30.0,0.405215,1.15338,-1,1.0,0.0,0.452586
-3,PV_4,GLD_4,PV_inverter_4,30.0,0.38263600000000003,1.0891099999999998,-1,1.0,0.0,0.42736799999999997
-4,PV_5,GLD_5,PV_inverter_5,30.0,0.33652,0.95785,-1,1.0,0.0,0.37586
-5,PV_6,GLD_6,PV_inverter_6,30.0,0.328569,0.93522,-1,1.0,0.0,0.36698000000000003
+,PV_name,house_name,inverter_name,rated_power,P_Out,P_before_curt,active,active_t1
+0,PV_1,GLD_1,PV_inverter_1,30.0,0.0,0.0,-1,-1
+1,PV_2,GLD_2,PV_inverter_2,30.0,0.0,0.0,-1,-1
+2,PV_3,GLD_3,PV_inverter_3,30.0,0.0,0.0,-1,-1
+3,PV_4,GLD_4,PV_inverter_4,30.0,0.0,0.0,-1,-1
+4,PV_5,GLD_5,PV_inverter_5,30.0,0.0,0.0,-1,-1
+5,PV_6,GLD_6,PV_inverter_6,30.0,0.0,0.0,-1,-1

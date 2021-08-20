@@ -1,61 +1,88 @@
 """
-Defines functions for the HH
-
-Uses direct setting of system mode
+Defines relevant functions for battery dispatch
 """
 import gridlabd
-#import gridlabd_functions
-#from gridlabd_functions import p_max # ???????????????
-#import mysql_functions
-#from HH_global import *
-
 import datetime
 import numpy as np
 import pandas
 from dateutil import parser
 from datetime import timedelta
 
-"""NEW FUNCTIONS / MYSQL DATABASE AVAILABLE"""
-
-#HVAC
+from HH_global import battery_bid_rule, start_time_str, allocation_rule
 from HH_global import interval, prec, which_price, M, results_folder
 which_price = 'DA'
 
+##############################
+# Read in physical HVAC parameters
+##############################
+
+# Collect characteristics relevant for bidding
 def get_settings_batteries(batterylist,interval,mysql=False):
       dt = parser.parse(gridlabd.get_global('clock')) #Better: getstart time!
-      #prev_timedate = dt - timedelta(minutes=interval/60)
-      #Prepare dataframe to save settings and current state
-      cols_battery = ['battery_name','house_name','SOC_min','SOC_max','i_max','u_max','efficiency','SOC_t','active_t-1','active_t','threshold_sell','threshold_buy']
+      cols_battery = ['battery_name','house_name','SOC_min','SOC_max','i_max','u_max','efficiency','SOC_t','active_t1','active_t','threshold_sell','threshold_buy']
       df_battery = pandas.DataFrame(columns=cols_battery)
+
+      # read out GLD model characteristics
       for battery in batterylist:
             battery_obj = gridlabd.get_object(battery)
             house_name = 'GLD_'+battery[8:]
-            #Fills TABLE market_appliances
             SOC_min = float(battery_obj['reserve_state_of_charge']) #in %
             SOC_max = float(battery_obj['battery_capacity'])/1000 #Wh in Gridlabd -> kWh
             str_i_max = battery_obj['I_Max'].replace('-','+')
             i_max = str_i_max.split('+')[1]
             u_max = float(battery_obj['V_Max'])*float(i_max)/1000 #W -> kW #better inverter?
             eff = float(battery_obj['base_efficiency'])
-            #Fills TABLE market_appliance_meter
             SOC_0 = float(battery_obj['state_of_charge'])*SOC_max
             df_battery = df_battery.append(pandas.Series([battery,house_name,SOC_min,SOC_max,i_max,u_max,eff,SOC_0,0,0,0.0,0.0],index=cols_battery),ignore_index=True)          
-      df_battery.set_index('battery_name',inplace=True)           
+             
       return df_battery
 
-#Mixture between updated state of the house and HVAC meter setting
+# Read previous SOC of each battery (not synchronized yet, so SOC from t-1) and forecast current SOC in t
 def update_battery(df_battery_state):
+      # Update physical parameters
       #-1: discharging, 0 no activity, 1 charging
-      #history is saved by battery recorder (P_out)
-      df_battery_state['active_t-1'] = df_battery_state['active_t']
-      df_battery_state['active_t'] = 0 
-      for batt in df_battery_state.index: #directly from mysql
+      df_battery_state['active_t1'] = df_battery_state['active_t']
+      df_battery_state['active_t'] = 0 # Reset from last period
+      for ind in df_battery_state.index: #directly from mysql
+            batt = df_battery_state['battery_name'].loc[ind]
             battery_obj = gridlabd.get_object(batt)
-            SOC_t = float(battery_obj['state_of_charge'])*df_battery_state['SOC_max'].loc[batt] #In Wh #Losses updated by GridlabD ?
-            df_battery_state.at[batt,'SOC_t'] = SOC_t
+            SOC_t = float(battery_obj['state_of_charge'])*df_battery_state['SOC_max'].loc[ind] #In Wh #Losses updated by GridlabD ?
+            df_battery_state.at[ind,'SOC_t'] = SOC_t
       return df_battery_state
 
-#Schedules battery for next 24 hours by simple ordering
+##############################
+# Determine battery bids
+##############################
+
+# Determine battery bids according to provided battery bidding rule
+def determine_bids(dt_sim_time,df_battery_state,retail,mean_p,var_p):
+      # Price
+      if battery_bid_rule == 'simple_mean':
+            df_battery_state = calc_bids_battery_simple_mean(df_battery_state,mean_p)
+      elif battery_bid_rule == 'threshold_based':
+            # Determine new thresholds at midnight
+            if ((dt_sim_time.hour == 0) and (dt_sim_time.minute == 0)) or (dt_sim_time == pandas.Timestamp(start_time_str)):
+                  specifier = str(dt_sim_time.year)+format(dt_sim_time.month,'02d')+format(dt_sim_time.day,'02d')
+                  df_battery_state = schedule_battery_ordered(df_WS,df_battery_state,dt_sim_time,specifier)
+            df_battery_state = calc_bids_battery_bythreshold(df_battery_state,dt_sim_time)
+      elif battery_bid_rule == 'optimal':
+            df_battery_state = calc_bids_battery_optimal(dt_sim_time,df_battery_state,retail,mean_p,var_p)
+      else:
+            print('Provided battery rule does not exist.')
+            print('Existing battery rules: simple_mean, threshold_based, optimal')
+            print('Using simple_mean as default')
+            df_battery_state = calc_bids_battery_simple_mean(df_battery_state,mean_p)
+      # Quantity
+      df_battery_state = calc_bids_battery_quantity(dt_sim_time,df_battery_state,retail,mean_p,var_p)
+      return df_battery_state
+
+# Calculates bids for battery in reference to mean price
+def calc_bids_battery_simple_mean(df_bids_battery,mean_p):
+      df_bids_battery['p_sell'] = mean_p / df_bids_battery['efficiency']
+      df_bids_battery['p_buy'] = mean_p * df_bids_battery['efficiency']
+      return df_bids_battery
+
+#Schedules battery for next 24 hours by ranking of DA prices 
 def schedule_battery_ordered(df_WS,df_battery_state,dt_sim_time,i):
       df_WS_prices = df_WS.loc[dt_sim_time:dt_sim_time+datetime.timedelta(hours=23,minutes=55)]
       df_WS_prices = df_WS_prices.sort_values(which_price,axis=0,ascending=False) #,inplace=True)
@@ -73,62 +100,14 @@ def schedule_battery_ordered(df_WS,df_battery_state,dt_sim_time,i):
       df_battery_state.to_csv(results_folder+'/df_battery_thresholds_'+str(i)+'.csv')
       return df_battery_state
 
-#Schedules battery for next 24 hours by convex optimization
-def schedule_battery_cvx(df_WS,df_battery_state,dt_sim_time):
-      import cvxpy as cvx
-      df_WS_prices = df_WS.loc[dt_sim_time:dt_sim_time+datetime.timedelta(hours=23,minutes=55)]
-      
-      battery_rate = cvx.Variable((len(df_battery_state),len(df_WS_prices))) #battery x time periods
-      battery_energy = cvx.Variable((len(df_battery_state),len(df_WS_prices)))
-
-      constraint_rate = df_battery_state['u_max'].to_numpy().reshape(len(df_battery_state['u_max']),1)*np.ones((1,len(df_WS_prices))) 
-      constraint_energy = df_battery_state['SOC_max'].to_numpy().reshape(len(df_battery_state['SOC_max']),1)*np.ones((1,len(df_WS_prices))) 
-
-      constraints = [battery_rate >= -constraint_rate, battery_rate <= constraint_rate]
-      constraints += [battery_energy[:,0] == df_battery_state['SOC_t'], battery_energy >= 0, battery_energy <= constraint_energy]
-      for i in np.arange(1, len(df_WS_prices)):
-            #remove eff and use the one from df
-            constraints += [battery_energy[:,i] == 0.996*battery_energy[:,i-1] + battery_rate[:,i-1]*(interval/3600.)] #batt_rate positive for charging; neg for discharging
-
-      obj = cvx.sum(battery_rate*df_WS_prices[which_price]) 
-      #+ 0.0001*cvx.sum_squares(battery_rate)
-      #- 0.001*cvx.sum(cvx.abs(battery_rate) - constraint_rate/2)
-      #- 0.001*(cvx.sum_squares(cvx.abs(battery_rate) - constraint_rate/2))
-      #0.001*(cvx.sum(-(battery_rate - constraint_rate/2)**2)) #
-      prob = cvx.Problem(cvx.Minimize(obj), constraints) #Cost minimization (bec discharging is negative)
-      prob.solve()
-
-      #Sort prices and calculate average prices of no_periods cheapest/most expensive periods
-      price_array = df_WS_prices[which_price].to_numpy().reshape(1,len(df_WS_prices))
-      price_array = np.ones((len(df_battery_state),1))*price_array
-      #Lowest threshold of selling (discharging / negative rate)
-      sell = np.copy(battery_rate.value)
-      sell[sell > -0.001] = 0
-      sell[sell <= -0.001] = 1 #discharging
-      sell = np.multiply(sell, price_array)
-      #Highest threshold of buying
-      buy = np.copy(battery_rate.value)
-      buy[buy < 0.001] = 0
-      buy[buy >= 0.001] = 1 #charging
-      buy = np.multiply(buy, price_array)
-      np.savetxt(results_folder+'/df_battery_sell_'+str(dt_sim_time)+'.csv',sell)
-      np.savetxt(results_folder+'/df_battery_buy_'+str(dt_sim_time)+'.csv',buy)
-      return
-
-def batt_myopic_bid(df_bids_battery,mean_p):
-      df_bids_battery['p_sell'] = mean_p / df_bids_battery['eff']
-      df_bids_battery['p_buy'] = mean_p * df_bids_battery['eff']
-      return df_bids_battery
-
-def batt_schedule_bythreshold(df_bids_battery,dt_sim_time):
+# Uses threshold provided by schedule_battery_ordered() as bid
+def calc_bids_battery_bythreshold(df_bids_battery,dt_sim_time):
       df_bids_battery['p_sell'] = df_bids_battery['threshold_sell']
       df_bids_battery['p_buy'] = df_bids_battery['threshold_buy']
       return df_bids_battery
 
-def calc_bids_battery(dt_sim_time,df_state_battery,retail,mean_p,var_p):
-      #Simple price rule
-      #df_bids_battery = batt_myopic_bid(df_bids_battery,mean_p)
-      df_state_battery = batt_schedule_bythreshold(df_state_battery,dt_sim_time)
+# Optimally schedule maximum charge or discharge, unless technically not feasible
+def calc_bids_battery_quantity(dt_sim_time,df_state_battery,retail,mean_p,var_p):
       #Quantity depends on SOC and u
       df_state_battery['residual_s'] = round((3600./interval)*(df_state_battery['SOC_t'] - df_state_battery['SOC_min']*df_state_battery['SOC_max']),prec) #Recalculate to kW
       df_state_battery['q_sell'] = df_state_battery[['residual_s','u_max']].min(axis=1) #in kW / only if fully dischargeable
@@ -138,74 +117,64 @@ def calc_bids_battery(dt_sim_time,df_state_battery,retail,mean_p,var_p):
       df_state_battery['residual_b'] = round((3600./interval)*(safety_fac*df_state_battery['SOC_max'] - df_state_battery['SOC_t']),prec) #Recalculate to kW
       df_state_battery['q_buy'] = df_state_battery[['residual_b','u_max']].min(axis=1) #in kW
       df_state_battery['q_buy'].loc[df_state_battery['q_buy'] < 0.1] = 0.0
-      #print df_bids_battery[['SOC_max','SOC','residual_s','q_sell','residual_b','q_buy']] #check if q* correctly formed
-      
-      """Should we enable negative prices?"""
-      df_state_battery['lower_bound'] = 0.0
-      df_state_battery['p_sell'] = df_state_battery[['p_sell','lower_bound']].max(axis=1)
-      df_state_battery['lower_bound'] = 0.0
-      df_state_battery['p_buy'] = df_state_battery[['p_buy','lower_bound']].max(axis=1)
       return df_state_battery
 
+##############################
+# Submit battery bids
+##############################
+
+# Submits battery bids to market
 def submit_bids_battery(dt_sim_time,retail,df_bids,df_supply_bids,df_buy_bids):
       for ind in df_bids.index:
             if df_bids['q_sell'].loc[ind] > 0.0:
                   retail.sell(df_bids['q_sell'].loc[ind],df_bids['p_sell'].loc[ind],gen_name=ind)
                   df_supply_bids = df_supply_bids.append(pandas.DataFrame(columns=df_supply_bids.columns,data=[[dt_sim_time,ind,float(df_bids['p_sell'].loc[ind]),float(df_bids['q_sell'].loc[ind])]]),ignore_index=True)
-                  #mysql_functions.set_values('supply_bids', '(bid_price,bid_quantity,timedate,gen_name)',(float(df_bids['p_sell'].loc[ind]),float(df_bids['q_sell'].loc[ind]),dt_sim_time,ind,))
             if df_bids['q_buy'].loc[ind] > 0.0:
-                  retail.buy(df_bids['q_buy'].loc[ind],df_bids['p_buy'].loc[ind],active=df_bids['active_t-1'].loc[ind],appliance_name=ind)
+                  retail.buy(df_bids['q_buy'].loc[ind],df_bids['p_buy'].loc[ind],active=df_bids['active_t1'].loc[ind],appliance_name=ind)
                   df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,ind,float(df_bids['p_buy'].loc[ind]),float(df_bids['q_buy'].loc[ind])]]),ignore_index=True)
-                  #mysql_functions.set_values('buy_bids', '(bid_price,bid_quantity,timedate,appliance_name)',(float(df_bids['p_buy'].loc[ind]),float(df_bids['q_buy'].loc[ind]),dt_sim_time,ind,))
-      df_bids['active_t-1'] = 0
+      df_bids['active_t1'] = 0
       return retail,df_supply_bids,df_buy_bids
 
-def set_battery_GLD(dt_sim_time,df_bids_battery,df_awarded_bids):
-      #Check efficiencies!!!
-      #Set charging/discharging
-      #Change from no to battery_name
-      #Do more quickly by setting database through Gridlabd?
-      for battery in df_bids_battery.index:
-            batt_number = int(battery.split('_')[-1]) #int(battery.split('_')[1])
-            SOC = df_bids_battery['SOC_t'].loc[battery] #this is SOC at the beginning of the period t
-            active = df_bids_battery['active_t'].loc[battery] #this is activity in t
-            if active == 1:
-                  q_bid = df_bids_battery['q_buy'].loc[battery]
-                  p_bid = df_bids_battery['p_buy'].loc[battery]
-                  gridlabd.set_value('Bat_inverter_'+battery[8:],'P_Out',str(-1000*q_bid)) #kW -> W    
-                  #mysql_functions.set_values('awarded_bids','(appliance_name,p_bid,q_bid,timedate)',(battery,float(p_bid),-float(q_bid)/1000,dt_sim_time))
-                  df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,battery,float(p_bid),float(q_bid),'D']]),ignore_index=True)
-            elif active == -1:
-                  q_bid = df_bids_battery['q_sell'].loc[battery]
-                  p_bid = df_bids_battery['p_sell'].loc[battery]
-                  gridlabd.set_value('Bat_inverter_'+battery[8:],'P_Out',str(1000*q_bid)) #kW -> W
-                  #Include sales as negative
-                  #mysql_functions.set_values('awarded_bids','(appliance_name,p_bid,q_bid,timedate)',(battery,float(p_bid),-float(q_bid)/1000,dt_sim_time))
-                  df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,battery,float(p_bid),float(q_bid),'S']]),ignore_index=True)
-            else:
-                  gridlabd.set_value('Bat_inverter_'+battery[8:],'P_Out','0.0')
-      return df_bids_battery, df_awarded_bids
+##############################
+# Set batteries according to allocation rule
+##############################
 
+# Sets battery after market clearing
+def set_battery(dt_sim_time,df_bids_battery,mean_p,var_p, retail,df_awarded_bids):
+      if allocation_rule == 'by_price':
+            # All buy bids above or at the clearing price dispatch (vice versa for demand)
+            df_bids_battery, df_awarded_bids = set_battery_by_price(dt_sim_time,df_bids_battery,mean_p,var_p, retail.Pd, df_awarded_bids)
+      elif allocation_rule == 'by_award':
+            # Bids only dispatch if explicitely selected by market operator (concerns bids == clearing_price)
+            df_bids_battery,df_awarded_bids = set_battery_by_award(dt_sim_time,df_bids_battery,retail, df_awarded_bids) #Controls battery based on award
+      elif allocation_rule == 'statistical':
+            # Bids only dispatch if explicitely selected by market operator (concerns bids == clearing_price) which is random
+            df_bids_battery,df_awarded_bids = set_battery_by_award(dt_sim_time,df_bids_battery,retail, df_awarded_bids) #Controls battery based on award
+      else:
+            df_bids_battery,df_awarded_bids = set_battery_by_price(dt_sim_time,df_bids_battery,mean_p,var_p, retail.Pd,df_awarded_bids)
+      return df_bids_battery,df_awarded_bids
+
+# Determines `active' based on price
 def set_battery_by_price(dt_sim_time,df_bids_battery,mean_p,var_p,Pd,df_awarded_bids):
       #Determine activity
-      df_bids_battery.at[:,'active_t'] = 0
       df_bids_battery.at[(df_bids_battery['p_buy'] >= Pd) & (df_bids_battery['SOC_t'] < df_bids_battery['SOC_max']),'active_t'] = 1
       df_bids_battery.at[(df_bids_battery['p_sell'] <= Pd) & (df_bids_battery['SOC_t'] > 0.0),'active_t'] = -1
-      #Set DB and GLD
+      # Let battery charge or discharge
       df_bids_battery, df_awarded_bids = set_battery_GLD(dt_sim_time,df_bids_battery,df_awarded_bids)
       return df_bids_battery,df_awarded_bids
 
+# Determines `active' based on market result
 def set_battery_by_award(dt_sim_time,df_bids_battery,market,df_awarded_bids):
-      df_bids_battery.at[:,'active_t'] = 0
+      # Determine activity
       try:
             list_awards_D = market.D_awarded[:,3]
             list_awards_D = [x for x in list_awards_D if x is not None]
       except:
             list_awards_D = []
+      import pdb; pdb.set_trace()
       for bidder in list_awards_D:
             if 'Battery_' in bidder:
                   df_bids_battery.at[bidder,'active_t'] = 1
-      #print 'Suppliers '+str(market.S_awarded)
       try:
             list_awards_S = market.S_awarded[:,3]
             list_awards_S = [x for x in list_awards_S if x is not None]
@@ -214,8 +183,38 @@ def set_battery_by_award(dt_sim_time,df_bids_battery,market,df_awarded_bids):
       for bidder in list_awards_S:
             if 'Battery_' in bidder:
                   df_bids_battery.at[bidder,'active_t'] = -1
-      #Set DB and GLD
+      # Let battery charge or discharge
       df_bids_battery, df_awarded_bids = set_battery_GLD(dt_sim_time,df_bids_battery,df_awarded_bids)
       return df_bids_battery, df_awarded_bids
+
+# Implements `active'
+def set_battery_GLD(dt_sim_time,df_bids_battery,df_awarded_bids):
+      #Check efficiencies!!!
+      #Set charging/discharging
+      #Change from no to battery_name
+      #Do more quickly by setting database through Gridlabd?
+      for ind in df_bids_battery.index:
+            battery = df_bids_battery['battery_name'].loc[ind]
+            inverter = gridlabd.get_object(battery)['parent']
+            SOC = df_bids_battery['SOC_t'].loc[ind] #this is SOC at the beginning of the period t
+            active = df_bids_battery['active_t'].loc[ind] #this is activity in t
+            if active == 1:
+                  q_bid = df_bids_battery['q_buy'].loc[ind]
+                  p_bid = df_bids_battery['p_buy'].loc[ind]
+                  gridlabd.set_value(inverter,'P_Out',str(-1000*q_bid)) #kW -> W    
+                  df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,battery,float(p_bid),float(q_bid),'D']]),ignore_index=True)
+            elif active == -1:
+                  q_bid = df_bids_battery['q_sell'].loc[ind]
+                  p_bid = df_bids_battery['p_sell'].loc[ind]
+                  gridlabd.set_value(inverter,'P_Out',str(1000*q_bid)) #kW -> W
+                  #Include sales as negative
+                  df_awarded_bids = df_awarded_bids.append(pandas.DataFrame(columns=df_awarded_bids.columns,data=[[dt_sim_time,battery,float(p_bid),float(q_bid),'S']]),ignore_index=True)
+            else:
+                  gridlabd.set_value(inverter,'P_Out','0.0')
+      return df_bids_battery, df_awarded_bids
+
+
+
+
 
 

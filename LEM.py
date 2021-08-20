@@ -2,9 +2,7 @@ import gldimport
 import os
 import random
 import pandas
-# import json
 import numpy as np
-# import datetime
 from datetime import timedelta
 from dateutil import parser
 import HH_functions as HHfct
@@ -148,11 +146,7 @@ def on_precommit(t):
 
 		#Batteries
 		if len(batterylist) > 0:
-			if ((dt_sim_time.hour == 0) and (dt_sim_time.minute == 0)) or step == 0:
-				specifier = str(dt_sim_time.year)+format(dt_sim_time.month,'02d')+format(dt_sim_time.day,'02d')
-				df_battery_state = Bfct.schedule_battery_ordered(df_WS,df_battery_state,dt_sim_time,specifier)
-				#sell, buy = Bfct.schedule_battery_cvx(df_WS,df_battery_state,dt_sim_time)
-			df_battery_state = Bfct.calc_bids_battery(dt_sim_time,df_battery_state,retail,mean_p,var_p)
+			df_battery_state = Bfct.determine_bids(dt_sim_time,df_battery_state,retail,mean_p,var_p)
 			retail,df_supply_bids,df_buy_bids = Bfct.submit_bids_battery(dt_sim_time,retail,df_battery_state,df_supply_bids,df_buy_bids)
 		
 		# EVs
@@ -212,11 +206,8 @@ def on_precommit(t):
 
 		# Battery
 		if len(batterylist) > 0:
-			if allocation_rule == 'by_price':
-				df_bids_battery, df_awarded_bids = Bfct.set_battery_by_price(dt_sim_time,df_battery_state,mean_p,var_p, Pd, df_awarded_bids) #Controls battery based on bid <-> p
-			elif allocation_rule == 'by_award':
-				df_bids_battery, df_awarded_bids = Bfct.set_battery_by_award(dt_sim_time,df_battery_state,retail, df_awarded_bids) #Controls battery based on award
-
+			df_battery_state, df_awarded_bids = Bfct.set_battery(dt_sim_time,df_battery_state,mean_p,var_p, retail,df_awarded_bids)
+			
 		# EV
 		if len(EVlist) > 0:
 			if allocation_rule == 'by_price':

@@ -27,6 +27,7 @@ HVAC_bid_rule = 'quantile'
 PV_bid_rule = 'zero_MC'
 PV_forecast_rule = 'myopic' # Option: myopic, perfect
 PV_forecast = '' # Refers to file with PV forecast
+battery_bid_rule = 'threshold_based' # simple_mean, threshold_based, optimal
 
 #glm parameters
 city = 'Austin'

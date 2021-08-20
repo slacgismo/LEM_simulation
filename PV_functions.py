@@ -103,7 +103,7 @@ def submit_bids_PV(dt_sim_time,retail,df_bids,df_supply_bids):
       return retail, df_supply_bids
 
 ##############################
-# Set HVACs according to price
+# Set PVs according to allocation rule
 ##############################
 
 # Sets PV after market clearing
@@ -123,12 +123,10 @@ def set_PV(dt_sim_time,market,df_bids,df_awarded_bids):
 
 # Determines `active' based on price
 def set_PV_by_price(dt_sim_time,df_bids,Pd,df_awarded_bids):
-      # Set activity
+      # Determine activity
       df_bids['active'].loc[(df_bids['p_sell'] <= Pd) & (df_bids['q_sell'] > 0.0)] = 1.0 # active
       df_bids['active'].loc[(df_bids['p_sell'] > Pd) & (df_bids['q_sell'] > 0.0)] = 0.0 # curtail
       # For curtailed systems, save last P
-      if len(df_bids['P_before_curt'].loc[(df_bids['active'] == 0) & (df_bids['P_Out'] > 0.0)]):
-            import pdb; pdb.set_trace()
       df_bids['P_before_curt'].loc[(df_bids['active'] == 0) & (df_bids['P_Out'] > 0.0)] = df_bids['P_Out'].loc[(df_bids['active'] == 0) & (df_bids['P_Out'] > 0.0)]
       # Curtail PV if necessary (previously curtailed systems are always re-dispatched in update())
       df_bids,df_awarded_bids = set_PV_GLD(dt_sim_time,df_bids,df_awarded_bids)
@@ -136,7 +134,7 @@ def set_PV_by_price(dt_sim_time,df_bids,Pd,df_awarded_bids):
 
 # Determines `active' based on market result
 def set_PV_by_award(dt_sim_time,df_bids,market,df_awarded_bids):
-      #import pdb; pdb.set_trace()
+      # Determine activity
       try:
             list_awards_S = market.S_awarded[:,3]
             list_awards_S = [x for x in list_awards_S if x is not None]
@@ -153,6 +151,7 @@ def set_PV_by_award(dt_sim_time,df_bids,market,df_awarded_bids):
       df_bids,df_awarded_bids = set_PV_GLD(dt_sim_time,df_bids,df_awarded_bids)
       return df_bids, df_awarded_bids
 
+# Implements `active' = 0 (curtailment)
 def set_PV_GLD(dt_sim_time,df_bids,df_awarded_bids):
       for ind in df_bids.index:
             PV = df_bids['PV_name'].loc[ind]
