@@ -1,0 +1,11 @@
+# file...... Results/cooling_system_type.csv
+# date...... Sun Aug 22 19:57:52 2021
+# user...... (null)
+# host...... (null)
+# group..... class=house
+# property.. cooling_system_type
+# limit..... 1
+# interval.. 300
+# timestamp,house_1,house_2,house_3,house_4,house_5,house_6
+2016-07-31 12:00:00 UTC,HEAT_PUMP,HEAT_PUMP,HEAT_PUMP,HEAT_PUMP,HEAT_PUMP,HEAT_PUMP
+# end of file

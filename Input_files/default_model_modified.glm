@@ -14,7 +14,7 @@
 
 clock {
 	starttime "2016-07-31 12:00";
-	stoptime "2016-08-08 00:00";
+	stoptime "2016-08-01 00:05:00";
 }
 
 module climate;
@@ -44,7 +44,6 @@ module residential{
 //
 ///////////////////////////////////////////////////////
 
-module LEM;
 class player {
 	double value;
 }
@@ -85,8 +84,8 @@ object meter {
 	phases ABCN;
 	bustype SWING;
 	object recorder {
-		property measured_real_power, measured_reactive_power; 
-		file Results/substation.csv;
+		property measured_real_power; 
+		file Benchmarking/substation.csv;
 		interval 300;
 	};
 }
@@ -239,7 +238,7 @@ object group_recorder {
 	name rec_meter_load_P;
 	group "class=triplex_meter";
 	property measured_real_power; 
-	file Results/meter_load_P.csv;
+	file Benchmarking/meter_load_P.csv;
 	interval 300;
 }
 
@@ -247,7 +246,7 @@ object group_recorder {
 	name rec_meter_load_Q;
 	group "class=triplex_meter";
 	property measured_reactive_power; 
-	file Results/meter_load_Q.csv;
+	file Benchmarking/meter_load_Q.csv;
 	interval 300;
 }
 
@@ -255,7 +254,7 @@ object group_recorder {
 	name rec_total_load;
 	group "class=house";
 	property total_load;
-	file Results/total_load_all.csv;
+	file Benchmarking/total_load_all.csv;
 	interval 300;
 }
 
@@ -263,7 +262,7 @@ object group_recorder {
 	name rec_hvac_load;
 	group "class=house";
 	property hvac_load;
-	file Results/hvac_load_all.csv;
+	file Benchmarking/hvac_load_all.csv;
 	interval 300;
 }
 
@@ -271,7 +270,7 @@ object group_recorder {
 	name rec_T;
 	group "class=house";
 	property air_temperature;
-	file Results/T_all.csv;
+	file Benchmarking/T_all.csv;
 	interval 300;
 }
 
@@ -279,15 +278,37 @@ object group_recorder {
 	name rec_inverters;
 	group "class=inverter";
 	property P_Out;
-	file Results/total_P_Out.csv;
+	file Benchmarking/total_P_Out.csv;
 	interval 300;
+	limit 100000;
 }
 
 object group_recorder {
 	name rec_ZIP;
 	group "class=ZIPload";
 	property base_power;
-	file Results/ZIP_load.csv;
+	file Benchmarking/ZIP_load.csv;
 	interval 300;
 }
+
+object group_recorder {
+	name rec_HVAC_cooling;
+	group "class=house";
+	property cooling_system_type;
+	file Benchmarking/cooling_system_type.csv;
+	interval 300;
+	limit 1;
+}
+
+
+object group_recorder {
+	name rec_HVAC_heating;
+	group "class=house";
+	property heating_system_type;
+	file Benchmarking/heating_system_type.csv;
+	interval 300;
+	limit 1;
+}
+
+
 

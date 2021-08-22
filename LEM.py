@@ -13,7 +13,7 @@ import market_functions as Mfct
 import time
 
 from HH_global import results_folder, C_import, C_export, p_max, market_data, which_price
-from HH_global import interval, prec, price_intervals, allocation_rule, unresp_factor, load_forecast
+from HH_global import interval, prec, price_intervals, allocation_rule #, unresp_factor, load_forecast, unresp_load_forecast
 from HH_global import FIXED_TARIFF
 from HH_global import grid_tariffs
 
@@ -58,18 +58,19 @@ def on_init(t):
 		gridlabd.set_value(house,'thermostat_control','NONE')
 
 	# If available, read in perfect PV forecast
-	if load_forecast == 'perfect':
-		global df_PV_forecast;
-		try:
-			df_PV_all = pandas.read_csv(file_perfect_PV_forecast,parse_dates=True,skiprows=8)
-			df_PV_all['# timestamp'] = df_PV_all['# timestamp'].str.replace(r' UTC$', '')
-			df_PV_all['# timestamp'] = pandas.to_datetime(df_PV_all['# timestamp'])
-			df_PV_all.set_index('# timestamp',inplace=True)
-			df_PV_forecast = pandas.DataFrame(index=df_PV_all.index,columns=['PV_infeed'],data=df_PV_all[df_PV_state['inverter_name']].sum(axis=1))
-			df_PV_forecast.to_csv(file_perfect_PV_forecast)
-		except:
-			print('No perfect PV forecast found, use myopic PV forecast')
-			df_PV_forecast = None
+	# if PV_forecast_rule == 'perfect':
+	# 	global df_PV_forecast;
+	# 	try:
+	# 		import pdb; pdb.set_trace()
+	# 		df_PV_all = pandas.read_csv(file_perfect_PV_forecast,parse_dates=True)
+	# 		df_PV_all['# timestamp'] = df_PV_all['# timestamp'].str.replace(r' UTC$', '')
+	# 		df_PV_all['# timestamp'] = pandas.to_datetime(df_PV_all['# timestamp'])
+	# 		df_PV_all.set_index('# timestamp',inplace=True)
+	# 		df_PV_forecast = pandas.DataFrame(index=df_PV_all.index,columns=['PV_infeed'],data=df_PV_all[df_PV_state['inverter_name']].sum(axis=1))
+	# 		df_PV_forecast.to_csv(file_perfect_PV_forecast)
+	# 	except:
+	# 		print('No perfect PV forecast found, use myopic PV forecast')
+	# 		df_PV_forecast = None
 
 	# If available, read in historic market data
 	global df_WS;
@@ -146,7 +147,7 @@ def on_precommit(t):
 
 		#Batteries
 		if len(batterylist) > 0:
-			df_battery_state = Bfct.determine_bids(dt_sim_time,df_battery_state,retail,mean_p,var_p)
+			df_battery_state = Bfct.determine_bids(dt_sim_time,df_WS,df_battery_state,retail,mean_p,var_p)
 			retail,df_supply_bids,df_buy_bids = Bfct.submit_bids_battery(dt_sim_time,retail,df_battery_state,df_supply_bids,df_buy_bids)
 		
 		# EVs
@@ -156,16 +157,19 @@ def on_precommit(t):
 
 		# PVs
 		if len(pvlist) > 0:
-			global df_PV_forecast;
-			if (load_forecast == 'myopic') or (df_PV_forecast is None):
-				df_PV_state = PVfct.determine_bids(dt_sim_time,df_PV_state,retail)
-				retail,df_supply_bids = PVfct.submit_bids_PV(dt_sim_time,retail,df_PV_state,df_supply_bids)
-			elif load_forecast == 'perfect':
-				#PV_forecast = df_PV_forecast['PV_infeed'].loc[dt_sim_time]
-				PV_forecast = df_PV_forecast['PV_infeed'].loc[(df_PV_forecast.index >= dt_sim_time) & (df_PV_forecast.index < dt_sim_time + pandas.Timedelta(str(int(interval/60))+' min'))].min()/1000
-				if PV_forecast > 0.0:
-					retail.sell(PV_forecast,0.0,gen_name='PV')
-					df_supply_bids = df_supply_bids.append(pandas.DataFrame(columns=df_supply_bids.columns,data=[[dt_sim_time,'PV',0.0,PV_forecast]]),ignore_index=True)
+			df_PV_state = PVfct.determine_bids(dt_sim_time,df_PV_state,retail)
+			retail,df_supply_bids = PVfct.submit_bids_PV(dt_sim_time,retail,df_PV_state,df_supply_bids)
+
+			# global df_PV_forecast;
+			# if (load_forecast == 'myopic') or (df_PV_forecast is None):
+			# 	df_PV_state = PVfct.determine_bids(dt_sim_time,df_PV_state,retail)
+			# 	retail,df_supply_bids = PVfct.submit_bids_PV(dt_sim_time,retail,df_PV_state,df_supply_bids)
+			# elif load_forecast == 'perfect':
+			# 	#PV_forecast = df_PV_forecast['PV_infeed'].loc[dt_sim_time]
+			# 	PV_forecast = df_PV_forecast['PV_infeed'].loc[(df_PV_forecast.index >= dt_sim_time) & (df_PV_forecast.index < dt_sim_time + pandas.Timedelta(str(int(interval/60))+' min'))].min()/1000
+			# 	if PV_forecast > 0.0:
+			# 		retail.sell(PV_forecast,0.0,gen_name='PV')
+			# 		df_supply_bids = df_supply_bids.append(pandas.DataFrame(columns=df_supply_bids.columns,data=[[dt_sim_time,'PV',0.0,PV_forecast]]),ignore_index=True)
 
 		# Include unresponsive load
 		retail, load_SLACK, unresp_load, df_buy_bids = Mfct.include_unresp_load(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids)

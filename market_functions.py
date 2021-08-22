@@ -20,8 +20,9 @@ import datetime
 from datetime import timedelta
 import gridlabd
 import pandas
-from HH_global import interval, city, prec, ref_price, price_intervals, load_forecast, unresp_factor, month, which_price, EV_data, slack_node
-#import mysql_functions
+from HH_global import interval, slack_node, price_intervals, unresp_load_forecast, unresp_load_forecast_rule, unresp_factor, ref_price, prec
+#, month, which_price, EV_data, city
+from HH_global import input_folder
 import time
 
 def create_market(df_WS,df_prices,p_max,prec,price_intervals,dt_sim_time):
@@ -57,61 +58,47 @@ def create_market(df_WS,df_prices,p_max,prec,price_intervals,dt_sim_time):
 
 def include_unresp_load(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids):
     load_SLACK = float(gridlabd.get_object(slack_node)['measured_real_power'])/1000 #measured_real_power in [W]
-    #print('Slack '+str(load_SLACK))
     #Alternatively: All loads which have been bidding and active in prev period
-    dt = datetime.timedelta(seconds=interval)
-    if len(df_prices) == 0:
-        active_prev = inel_prev = unresp_load = 0.0
-    else:
-        prev_loc_supply = df_awarded_bids['bid_quantity'].loc[(df_awarded_bids['timestamp'] == (pandas.Timestamp(dt_sim_time) - pandas.Timedelta(str(int(interval/60))+' min'))) & (df_awarded_bids['S_D'] == 'S')].sum()
-        prev_loc_demand = df_awarded_bids['bid_quantity'].loc[(df_awarded_bids['timestamp'] == (pandas.Timestamp(dt_sim_time) - pandas.Timedelta(str(int(interval/60))+' min'))) & (df_awarded_bids['S_D'] == 'D')].sum()
-        
-        #For baseload calculation
-        #unresp_load = 0
-
-        #Myopic
-        #import pdb; pdb.set_trace()
-        if load_forecast == 'myopic':
-            active_prev = df_prices['clearing_quantity'].loc[dt_sim_time - dt]
-            inel_prev = df_prices['unresponsive_loads'].loc[dt_sim_time - dt]
-            unresp_load = (load_SLACK - max(active_prev - inel_prev,0)) * unresp_factor
-            
-            #Myopic based on awarded bids
-            #Works only if no WS market bids or unresp load in df_awarded!
-            unresp_load = (load_SLACK - prev_loc_demand + prev_loc_supply)*unresp_factor
-            #import pdb; pdb.set_trace()
-        #Perfect max forecast
-        #elif load_forecast == 'perfect':
+    if len(df_prices) > 0:
+        # Myopic
+        if unresp_load_forecast_rule == 'myopic':
+            unresp_load = calc_unresp_load_myopic(dt_sim_time,df_awarded_bids,load_SLACK)
+        # Perfect max forecast
+        elif unresp_load_forecast_rule == 'perfect':
+            unresp_load = calc_unresp_load_perfect(dt_sim_time,df_awarded_bids,load_SLACK)
         else:
-            df_baseload = pandas.read_csv('glm_generation_'+city+'/'+load_forecast)
-            df_baseload['# timestamp'] = df_baseload['# timestamp'].str.replace(r' UTC$', '')
-            df_baseload['# timestamp'] = pandas.to_datetime(df_baseload['# timestamp'])
-            df_baseload.set_index('# timestamp',inplace=True)
-            baseload_t = df_baseload['baseload'].loc[dt_sim_time]
-            baseload_t1 = df_baseload['baseload'].loc[dt_sim_time - pandas.Timedelta(minutes=5)]
+            print('Provided unresponsive load forecasting rule does not exist.')
+            print('Existing unresponsive load forecasting rules: myopic, perfect')
+            print('Using myopic as default')
+            unresp_load = calc_unresp_load_myopic(dt_sim_time,df_awarded_bids,load_SLACK)
+    else:
+        active_prev = inel_prev = unresp_load = 0.0   
 
-            unresp_load_t1 = load_SLACK - prev_loc_demand + prev_loc_supply # unresponsive load (base + GAS) at t-1
-            gas_t1 = unresp_load_t1 - baseload_t1
-            if gas_t1 < 0.0:
-                print('Gas load is negative: '+str(gas_t1))
-
-            unresp_load = (baseload_t + gas_t1)*unresp_factor
-            # last_baseload = df_baseload['baseload'].loc[dt_sim_time - pandas.Timedelta('1 min')]
-            # max_baseload = df_baseload['baseload'].loc[(df_baseload.index >= dt_sim_time) & (df_baseload.index < dt_sim_time + pandas.Timedelta(str(int(interval/60))+' min'))].max()
-            # unresp_load = load_SLACK - prev_loc_demand + prev_loc_supply - last_baseload + max_baseload
-            # if unresp_factor > 1.0:
-            #     import pdb; pdb.set_trace()
-            #     import sys
-            #     sys.exit('Add noise through unresp_factor')
-        #else:
-        #    import sys; sys.exit('No such load forecast')
-
-        #print('Unresp load: '+str(unresp_load))
+    # Submit unresponsive load bid
     retail.buy(unresp_load,appliance_name='unresp')
-    #df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,'unresponsive_loads',p_max,round(float(unresp_load),prec),'None']]),ignore_index=True)
     df_buy_bids = df_buy_bids.append(pandas.DataFrame(columns=df_buy_bids.columns,data=[[dt_sim_time,'unresponsive_loads',retail.Pmax,round(float(unresp_load),prec)]]),ignore_index=True)
-    #mysql_functions.set_values('buy_bids', '(bid_price,bid_quantity,timedate,appliance_name)',(p_max,round(float(unresp_load),prec),dt_sim_time,'unresponsive_loads',))
     return retail, load_SLACK, unresp_load, df_buy_bids
+
+def calc_unresp_load_myopic(dt_sim_time,df_awarded_bids,load_SLACK):
+    prev_loc_supply = df_awarded_bids['bid_quantity'].loc[(df_awarded_bids['timestamp'] == (pandas.Timestamp(dt_sim_time) - pandas.Timedelta(str(int(interval/60))+' min'))) & (df_awarded_bids['S_D'] == 'S')].sum()
+    prev_loc_demand = df_awarded_bids['bid_quantity'].loc[(df_awarded_bids['timestamp'] == (pandas.Timestamp(dt_sim_time) - pandas.Timedelta(str(int(interval/60))+' min'))) & (df_awarded_bids['S_D'] == 'D')].sum()    
+    unresp_load = (load_SLACK - prev_loc_demand + prev_loc_supply)*unresp_factor
+    return unresp_load
+
+def calc_unresp_load_perfect(dt_sim_time,df_awarded_bids,load_SLACK):
+    try:
+        df_unresp_load = pandas.read_csv(input_folder +'/'+unresp_load_forecast,index_col=[0],parse_dates=True)
+        if dt_sim_time in df_unresp_load.index:
+            unresp_load = df_unresp_load['unresp_load'].loc[dt_sim_time]
+        else:
+            print('Relevant time not in load forecast, using myopic forecast instead')
+            unresp_load = calc_unresp_load_myopic(dt_sim_time,df_awarded_bids,load_SLACK)
+    except:
+        print('No such load forecast, using myopic forecast instead')
+        unresp_load = calc_unresp_load_myopic(dt_sim_time,df_awarded_bids,load_SLACK)
+    return unresp_load
+
+    unresp_load = (baseload_t + gas_t1)*unresp_factor
 
 def include_unresp_load_control(dt_sim_time,retail,df_prices,df_buy_bids,df_awarded_bids):
     load_SLACK = 0.0 #measured_real_power in [W]

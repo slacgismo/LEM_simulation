@@ -55,7 +55,7 @@ def update_battery(df_battery_state):
 ##############################
 
 # Determine battery bids according to provided battery bidding rule
-def determine_bids(dt_sim_time,df_battery_state,retail,mean_p,var_p):
+def determine_bids(dt_sim_time,df_WS,df_battery_state,retail,mean_p,var_p):
       # Price
       if battery_bid_rule == 'simple_mean':
             df_battery_state = calc_bids_battery_simple_mean(df_battery_state,mean_p)

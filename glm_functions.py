@@ -10,6 +10,7 @@ import shutil
 import math
 import copy
 import random
+import os
 
 from HH_global import glm_model, start_time_str, end_time_str, results_folder, pricing
 
@@ -51,7 +52,10 @@ def change_glmfile():
         elif ('file ' in line) and flag_recorder: # file in a recorder
             indent = line.split('file')[0]
             file_name = line.rsplit('/',1)[-1]
-            new_glm.write(indent+'file '+results_folder+'/'+file_name)
+            if '"' in line:
+                new_glm.write(indent+'file "'+results_folder+'/'+file_name)
+            else:
+                new_glm.write(indent+'file '+results_folder+'/'+file_name)
             flag_recorder = False
         else:
             new_glm.write(line)

@@ -1,7 +1,7 @@
-battery_name,house_name,SOC_min,SOC_max,i_max,u_max,efficiency,SOC_t,active_t-1,active_t,threshold_sell,threshold_buy
-Battery_1,GLD_1,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
-Battery_2,GLD_2,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
-Battery_3,GLD_3,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
-Battery_4,GLD_4,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
-Battery_5,GLD_5,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
-Battery_6,GLD_6,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
+,battery_name,house_name,SOC_min,SOC_max,i_max,u_max,efficiency,SOC_t,active_t1,active_t,threshold_sell,threshold_buy
+0,Battery_1,GLD_1,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
+1,Battery_2,GLD_2,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
+2,Battery_3,GLD_3,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
+3,Battery_4,GLD_4,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
+4,Battery_5,GLD_5,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7
+5,Battery_6,GLD_6,0.0,50.0,15,3.9,0.95,50.0,0,0,25.0,26.7

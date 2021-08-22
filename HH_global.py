@@ -1,6 +1,8 @@
 import os
 
 # Result file
+benchmarking_folder = 'Benchmarking'
+input_folder = 'Input_files'
 results_folder = 'Results'
 if not os.path.exists(results_folder):
 	os.makedirs(results_folder)
@@ -9,7 +11,7 @@ if not os.path.exists(results_folder):
 pricing = 'LEM' # Options: fixed, LEM ; to be implemented: ToU
 
 # For glm
-glm_model = 'default_model.glm'
+glm_model = '6houses_model.glm' #'default_model.glm' # 
 slack_node = 'node_149'
 
 # For market
@@ -23,17 +25,19 @@ grid_tariffs = 0.0 # [USD/kWh] additional price component, gets added to cost of
 allocation_rule = 'price'
 
 # Customer behavior
-HVAC_bid_rule = 'quantile'
+unresp_load_forecast_rule = 'perfect'
+unresp_load_forecast = 'perfect_unrespload_forecast.csv'
+HVAC_bid_rule = 'economic_quadratic'
 PV_bid_rule = 'zero_MC'
-PV_forecast_rule = 'myopic' # Option: myopic, perfect
-PV_forecast = '' # Refers to file with PV forecast
+PV_forecast_rule = 'perfect' # Option: myopic, perfect
+PV_forecast = 'perfect_PV_forecast.csv' # Refers to file with PV forecast
 battery_bid_rule = 'threshold_based' # simple_mean, threshold_based, optimal
 
 #glm parameters
 city = 'Austin'
 month = 'july'
 start_time_str = '2016-07-31 12:00'
-end_time_str = '2016-08-08 00:00'
+end_time_str = '2016-08-01 00:00'
 player_dir = 'players_Austin'
 tmy_file = '722540TYA.tmy3'
 
@@ -43,7 +47,6 @@ EV_data = 'None'
 #Market parameters
 
 
-load_forecast = 'myopic'
 unresp_factor = 1.0
 FIXED_TARIFF = False
 interval = 300

@@ -84,7 +84,7 @@ object meter {
 	phases ABCN;
 	bustype SWING;
 	object recorder {
-		property measured_real_power, measured_reactive_power; 
+		property measured_real_power; 
 		file Results/substation.csv;
 		interval 300;
 	};
@@ -280,6 +280,7 @@ object group_recorder {
 	property P_Out;
 	file Results/total_P_Out.csv;
 	interval 300;
+	limit 100000;
 }
 
 object group_recorder {
@@ -289,4 +290,25 @@ object group_recorder {
 	file Results/ZIP_load.csv;
 	interval 300;
 }
+
+object group_recorder {
+	name rec_HVAC_cooling;
+	group "class=house";
+	property cooling_system_type;
+	file Results/cooling_system_type.csv;
+	interval 300;
+	limit 1;
+}
+
+
+object group_recorder {
+	name rec_HVAC_heating;
+	group "class=house";
+	property heating_system_type;
+	file Results/heating_system_type.csv;
+	interval 300;
+	limit 1;
+}
+
+
 

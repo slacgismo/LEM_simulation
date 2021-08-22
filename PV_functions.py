@@ -9,7 +9,7 @@ from dateutil import parser
 from datetime import timedelta
 
 from HH_global import PV_bid_rule, PV_forecast_rule, PV_forecast, allocation_rule
-from HH_global import interval, prec, load_forecast, city, month
+from HH_global import interval #, prec, load_forecast, city, month
 
 ##############################
 # Read in physical PV parameters
@@ -79,14 +79,16 @@ def calc_q_PV_myopic(dt_sim_time,df_PV_state,retail):
 # Uses PV generation from benchmark scenario as perfect PV forecast
 def calc_q_PV_perfect(dt_sim_time,df_PV_state,retail):
       try:
-            df_PV_forecast = pandas.read_csv('Input_files/' + PV_forecast)
-            df_PV_forecast['# timestamp'] = df_PV_forecast['# timestamp'].str.replace(r' UTC$', '')
-            df_PV_forecast['# timestamp'] = pandas.to_datetime(df_PV_forecast['# timestamp'])
-            df_PV_forecast.set_index('# timestamp',inplace=True)
-            df_PV_forecast = df_PV_forecast[df_PV_state.PV_name]
-            max_PV_forecast = df_PV_forecast.loc[(df_baseload.index >= dt_sim_time) & (df_baseload.index < dt_sim_time + pandas.Timedelta(str(int(interval/60))+' min'))].max()
+            df_PV_forecast = pandas.read_csv('Input_files/' + PV_forecast,index_col=[0],parse_dates=True)
+            if dt_sim_time in df_PV_forecast.index:
+                  index_inv = df_PV_forecast.columns
+                  df_PV_state['q_sell'] = 0.0
+                  df_PV_state['q_sell'].loc[df_PV_state['inverter_name'] == index_inv] = df_PV_forecast.loc[dt_sim_time].values/1000.
+            else:
+                  print('Relevant time not in PV forecast, using myopic forecast instead')
+                  df_PV_state = calc_q_PV_myopic(dt_sim_time,df_PV_state,retail)
       except:
-            # Use myopic forecast if no PV forecast is found
+            print('No such PV forecast, using myopic forecast instead')
             df_PV_state = calc_q_PV_myopic(dt_sim_time,df_PV_state,retail)
       return df_PV_state
 
